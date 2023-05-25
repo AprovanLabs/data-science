@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "aprovan-data-science"
+description = "Core data science repository"
+authors = []
+version = "0.1.0"
+packages = [
+  { include = "aprovan" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4.0"
+awswrangler = '~3.1'
+pandas = ">1.5.0,<3.0.0"
+numpy = ">=1.18"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+black = {version = "^22.1", allow-prereleases = true}
