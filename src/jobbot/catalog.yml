@@ -1,0 +1,84 @@
+scrapers:
+  - id: minnesota_works
+    credentials:
+      username: "${MINNESOTA_WORKS_CANDIDATES_USERNAME}"
+      password: "${MINNESOTA_WORKS_CANDIDATES_PASSWORD}"
+    options:
+      search_term: cnc
+
+      # 0: Any
+      # A13149811: Business Development
+      # B13262712: Electronics Technician
+      # X13428484: Estimator
+      # U13428481: Junior Accountant
+      # N13142307: Machine Operator
+      # U13142314: Machine Operator
+      # G13447154: Picker/Packer
+      # N13453920: Sales Executive
+      # R13453948: Sales Executive
+      # A13142620: Soldering Technician
+      # Z13149810: Technical Recruiter
+      # E13447153: Truss Assembler
+      job_order: 0
+
+      # 3: Any
+      # 1: Full time
+      # 2: Part time
+      work_week: 3
+
+      # 0: Any
+      # 1: First
+      # 2: Second
+      # 3: Third
+      # 4: Split
+      # 5: Rotating
+      # 6: Other
+      work_shift: 0
+
+      # 0: Any
+      # 1: Regular
+      # 2: Temporary
+      # 3: Regular or temporary
+      work_type: 0
+
+      zip_codes:
+        - 55111
+
+        # Other Minneapolis zip codes
+        # - 55401
+        # - 55402
+        # - 55403
+        # - 55404
+        # - 55405
+        # - 55406
+        # - 55407
+        # - 55408
+        # - 55409
+        # - 55410
+        # - 55411
+        # - 55412
+        # - 55413
+        # - 55414
+        # - 55415
+        # - 55416
+        # - 55417
+        # - 55418
+        # - 55419
+        # - 55421
+        # - 55423
+        # - 55430
+        # - 55450
+        # - 55454
+        # - 55455
+
+      # 0: Less than High School Diploma/GED
+      # 1: High School Diploma/GED
+      # 2: Some College
+      # 3: Vocational School Diploma/Certificate
+      # 4: Associate's Degree
+      # 5: Bachelor's Degree
+      # 6: Master's Degree
+      # 7: Doctoral Degree
+      job_levels: [0, 1, 2, 3, 4, 5]
+
+      military_search: false
