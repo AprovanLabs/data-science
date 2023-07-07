@@ -1,29 +1,29 @@
 from scrapy.item import Item, Field
-from typing import List
+from itemloaders.processors import TakeFirst
 
 
 class JobHistoryItem(Item):
-    id = Field()
-    candidate_id = Field()
-    spider = Field()
-    timestamp = Field()
-    title = Field()
-    company = Field()
-    location = Field()
-    start_date = Field()
-    end_date = Field()
-    description = Field()
+    id = Field(output_processor=TakeFirst())
+    candidate_id = Field(output_processor=TakeFirst())
+    spider = Field(output_processor=TakeFirst())
+    timestamp = Field(output_processor=TakeFirst())
+    title = Field(output_processor=TakeFirst())
+    company = Field(output_processor=TakeFirst())
+    location = Field(output_processor=TakeFirst())
+    start_date = Field(output_processor=TakeFirst())
+    end_date = Field(output_processor=TakeFirst())
+    description = Field(output_processor=TakeFirst())
 
 
 class CandidateItem(Item):
-    id = Field()
-    spider = Field()
-    timestamp = Field()
-    resume_id = Field()
-    url = Field()
-    name = Field()
-    street = Field()
-    city_state_zip_code = Field()
-    phone_number = Field()
-    email = Field()
-    notes = Field()
+    id = Field(output_processor=TakeFirst())
+    spider = Field(output_processor=TakeFirst())
+    timestamp = Field(output_processor=TakeFirst())
+    resume_id = Field(output_processor=TakeFirst())
+    url = Field(output_processor=TakeFirst())
+    name = Field(output_processor=TakeFirst())
+    street = Field(output_processor=TakeFirst())
+    city_state_zip_code = Field(output_processor=TakeFirst())
+    phone_number = Field(output_processor=TakeFirst())
+    email = Field(output_processor=TakeFirst())
+    notes = Field(output_processor=TakeFirst())

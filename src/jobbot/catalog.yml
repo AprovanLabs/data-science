@@ -4,7 +4,7 @@ scrapers:
       username: "${MINNESOTA_WORKS_CANDIDATES_USERNAME}"
       password: "${MINNESOTA_WORKS_CANDIDATES_PASSWORD}"
     options:
-      search_term: cnc
+      search_term:
 
       # 0: Any
       # A13149811: Business Development
@@ -42,10 +42,10 @@ scrapers:
       work_type: 0
 
       zip_codes:
+        # Minneapolis zip codes
         - 55111
+        - 55401
 
-        # Other Minneapolis zip codes
-        # - 55401
         # - 55402
         # - 55403
         # - 55404
@@ -82,3 +82,18 @@ scrapers:
       job_levels: [0, 1, 2, 3, 4, 5]
 
       military_search: false
+
+  # - id: monster
+  #   credentials:
+  #     username: "${MONSTER_USERNAME}"
+  #     password: "${MONSTER_PASSWORD}"
+
+  # - id: apollo
+  #   credentials:
+  #     username: "${APOLLO_USERNAME}"
+  #     password: "${APOLLO_PASSWORD}"
+
+  # - id: facebook
+  #   credentials:
+  #     username: "${FACEBOOK_USERNAME}"
+  #     password: "${FACEBOOK_PASSWORD}"

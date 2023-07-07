@@ -5,8 +5,9 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional
 import uuid
+import logging
 
-from itemloaders.processors import MapCompose
+from itemloaders.processors import MapCompose, TakeFirst
 from scrapy.utils.response import open_in_browser
 from scrapy.linkextractors import LinkExtractor
 from scrapy.spiders import Rule
@@ -167,12 +168,18 @@ class MinnesotaWorksSpider(JobBotSpider):
         )
 
     def parse(self, _response):
-        for zip_code in self.options.get("zip_codes"):
-            yield Request(
-                "https://www.minnesotaworks.net/Search.aspx?Searchtype=resume",
-                callback=self.search_postings,
-                cb_kwargs={"zip_code": zip_code},
-            )
+        logging.info("Starting search")
+        zip_code = self.options.get("zip_codes").pop()
+
+        if zip_code is None:
+            return
+
+        logging.info("Searching zip code: %s", zip_code)
+        yield Request(
+            "https://www.minnesotaworks.net/Search.aspx?Searchtype=resume",
+            callback=self.search_postings,
+            cb_kwargs={"zip_code": zip_code},
+        )
 
     def search_postings(self, response, zip_code):
         yield FormRequest.from_response(
@@ -185,7 +192,9 @@ class MinnesotaWorksSpider(JobBotSpider):
                         "job_order"
                     ),
                     f"{_FORM_ITEM_PREFIX}ZipcodeTextBox": zip_code,
-                    f"{_FORM_ITEM_PREFIX}Keywordtext": self.options.get("search_term"),
+                    f"{_FORM_ITEM_PREFIX}Keywordtext": self.options.get(
+                        "search_term", ""
+                    ),
                     f"{_FORM_ITEM_PREFIX}WorkweekDdl": self.options.get("work_week"),
                     f"{_FORM_ITEM_PREFIX}WorkShiftDdl": self.options.get("work_shift"),
                     f"{_FORM_ITEM_PREFIX}WorkTypeDdl": self.options.get("work_type"),
@@ -226,16 +235,27 @@ class MinnesotaWorksSpider(JobBotSpider):
         yield from self.parse_item(selector, response)
 
         page_number = self._get_page_number(response)
-        next_selector = response.xpath(f'//input[@id="{_FORM_ITEM_PREFIX}NextButton1"]')
-        if next_selector:
-            yield FormRequest.from_response(
-                response,
-                formdata={
-                    f"{_FORM_ITEM_PREFIX}ResumeIndex": str(page_number),
-                    f"{_FORM_ITEM_PREFIX}NextButton1": "Next Resume >",
-                    "__VIEWSTATE": self._get_form_value("__VIEWSTATE", response),
-                },
-            )
+        logging.info("Page #%s", page_number)
+
+        is_last_page = response.css(
+            "input#ctl00_SubContentPlaceholder_NextButton1::attr(disabled)"
+        ).extract_first()
+        logging.info(is_last_page)
+        is_last_page = is_last_page == "disabled"
+
+        if is_last_page:
+            yield from self.parse(response)
+            return
+
+        yield FormRequest.from_response(
+            response,
+            formdata={
+                f"{_FORM_ITEM_PREFIX}ResumeIndex": str(page_number),
+                f"{_FORM_ITEM_PREFIX}NextButton1": "Next Resume >",
+                "__VIEWSTATE": self._get_form_value("__VIEWSTATE", response),
+            },
+            callback=self.parse_posting,
+        )
 
     def parse_item(self, selector, response):
         item_loader = ItemLoader(item=CandidateItem(), selector=selector)
@@ -243,7 +263,6 @@ class MinnesotaWorksSpider(JobBotSpider):
         id = str(uuid.uuid4())
 
         item_loader.add_value("id", id)
-
         resume_id = self._id_xpath_value(
             "ctl00_SubContentPlaceholder_NoContactResumeLbl"
         )

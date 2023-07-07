@@ -1,0 +1,25 @@
+apiVersion: skaffold/v2beta23
+kind: Config
+metadata:
+  name: data-science
+
+build:
+  local:
+    push: false
+  artifacts:
+    - image: 748469276309.dkr.ecr.us-east-2.amazonaws.com/aprovan/data-science
+      context: .
+      jib: {}
+
+deploy:
+  kubeContext: rancher-desktop
+  kustomize:
+    paths:
+      - k8s
+
+portForward:
+  - resourceType: deployment
+    resourceName: data-science
+    namespace: default
+    port: 5432
+    localPort: 5432

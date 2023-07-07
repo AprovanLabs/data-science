@@ -71,14 +71,30 @@ class JobBotScraper:
                 "CONCURRENT_REQUESTS": 16,
                 "COOKIES_ENABLED": True,
                 "REQUEST_FINGERPRINTER_IMPLEMENTATION": "2.7",
-                "FEED_FORMAT": "json",
-                "FEED_URI": "target/result.json",
+                "DOWNLOAD_DELAY": 2,
+                # "CLOSESPIDER_ITEMCOUNT": 50,
+                "FEEDS": {
+                    "target/job_history/source=%(name)s/%(time)s.json": {
+                        "format": "json",
+                        "encoding": "utf8",
+                        "item_classes": [
+                            "jobbot.scraper.items.JobHistoryItem",
+                        ],
+                    },
+                    "target/candidates/source=%(name)s/%(time)s.json": {
+                        "format": "json",
+                        "encoding": "utf8",
+                        "item_classes": [
+                            "jobbot.scraper.items.CandidateItem",
+                        ],
+                    },
+                },
             }
         )
         for scraper in self._scrapers:
             process.crawl(
                 self._spiders.get(scraper.get("id")),
-                options=scraper.get("options"),
+                options=scraper.get("options", {}),
                 credentials=scraper.get("credentials"),
             )
 
