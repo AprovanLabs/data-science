@@ -1,3 +1,6 @@
+include .env
+export
+
 run:
 	kubectl ctx rancher-desktop
 	kustomize build . | kubectl apply -f -

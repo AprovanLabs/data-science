@@ -3,14 +3,6 @@ kind: Config
 metadata:
   name: data-science
 
-build:
-  local:
-    push: false
-  artifacts:
-    - image: 748469276309.dkr.ecr.us-east-2.amazonaws.com/aprovan/data-science
-      context: .
-      jib: {}
-
 deploy:
   kubeContext: rancher-desktop
   kustomize:
@@ -19,7 +11,17 @@ deploy:
 
 portForward:
   - resourceType: deployment
-    resourceName: data-science
+    resourceName: data-science-postgres
     namespace: default
     port: 5432
     localPort: 5432
+  - resourceType: deployment
+    resourceName: data-science-superset
+    namespace: default
+    port: 8088
+    localPort: 8088
+  - resourceType: deployment
+    resourceName: data-science-mageai
+    namespace: default
+    port: 6789
+    localPort: 6789
