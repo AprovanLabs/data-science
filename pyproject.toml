@@ -9,7 +9,7 @@ python = ">=3.8,<4.0"
 awswrangler = '~3.1'
 pandas = ">1.5.0,<3.0.0"
 numpy = ">=1.18"
-seaborn = ">=0.11.2,<0.12"
+seaborn = ">=0.11.2,<0.13"
 matplotlib = ">=3.4.3,<4"
 
 [tool.poetry.dev-dependencies]
