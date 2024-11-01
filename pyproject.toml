@@ -17,5 +17,5 @@ pytest = "^7.0"
 black = {version = "^23.7", allow-prereleases = true}
 
 [tool.poetry.group.dev.dependencies]
-ipykernel = "^6.23.3"
+ipykernel = "^6.29.5"
 
