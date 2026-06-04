@@ -1,6 +1,8 @@
-"""Onkia — Wright County Fishing Day Recommendation App.
+"""AprovanLabs Data Science — Streamlit entry point.
 
-Entry point. Run with:
+General-purpose entry point. Each application is organised as a
+section in the sidebar.  Run with:
+
     streamlit run app/app.py
 """
 import sys
@@ -14,11 +16,13 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 st.set_page_config(
-    page_title="Onkia — Wright County Fishing",
-    page_icon="🎣",
+    page_title="AprovanLabs Data Science",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ---- Pages (grouped by section) ----
 
 lake_finder_page = st.Page(
     "pages/lake_finder.py",
@@ -37,16 +41,24 @@ species_dashboard_page = st.Page(
 )
 
 pg = st.navigation(
-    [lake_finder_page, fishing_day_page, species_dashboard_page],
+    {
+        "Wright County Fishing": [
+            lake_finder_page,
+            fishing_day_page,
+            species_dashboard_page,
+        ],
+    },
     position="sidebar",
 )
 
+# ---- Sidebar (runs on every page load) ----
+
 with st.sidebar:
-    st.markdown("## Onkia 🎣")
-    st.caption("Wright County, MN — Fishing Intelligence")
+    st.markdown("## AprovanLabs 🔬")
+    st.caption("Data Science Applications")
     st.divider()
 
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("🔄 Refresh Data", key="btn_refresh_data", use_container_width=True):
         st.cache_data.clear()
         st.success("Cache cleared — data will reload on next action.")
 

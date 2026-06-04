@@ -8,12 +8,14 @@ from typing import Optional
 import streamlit as st
 from streamlit_folium import st_folium
 
-# Ensure src/ is on path
-_src = Path(__file__).resolve().parent.parent.parent / "src"
-if str(_src) not in sys.path:
-    sys.path.insert(0, str(_src))
+# Ensure src/ and app/ are on path (never import via `app.*` — it re-executes app.py)
+_app = Path(__file__).resolve().parent.parent
+_src = _app.parent / "src"
+for _p in (_app, _src):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-from app.components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
+from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
 from onkia import MnDnrLakeTopographyService  # noqa: E402
 
 st.title("🗺️ Lake Finder")
