@@ -1,0 +1,107 @@
+name: Validate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  pytest:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Run pytest
+        run: pytest tests/ -v
+
+  notebooks:
+    name: Marimo Notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: pip install -r requirements.txt marimo
+      - name: Run notebooks as scripts
+        run: |
+          for nb in notebooks/0*.py; do
+            echo "::group::Running $nb"
+            python "$nb"
+            echo "::endgroup::"
+          done
+
+  streamlit-smoke:
+    name: Streamlit Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Start Streamlit headless
+        run: |
+          streamlit run app/app.py \
+            --server.headless true \
+            --server.port 8501 \
+            --browser.gatherUsageStats false &
+          STUDIO_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+              echo "Streamlit health check passed"
+              kill $STUDIO_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Streamlit health check failed after 60s"
+          kill $STUDIO_PID 2>/dev/null || true
+          exit 1
+
+  great-expectations:
+    name: Great Expectations Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Great Expectations validation on test fixtures
+        run: python scripts/validate_data.py --data-dir tests/fixtures
