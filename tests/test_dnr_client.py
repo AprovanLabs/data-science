@@ -149,6 +149,7 @@ class TestGetLake:
         mock_get.assert_called_once_with(
             MnDnrLakeTopographyService._API_BY_NAME_AND_COUNTY,
             params={"name": "Clearwater", "county": "86"},
+            timeout=15,
         )
 
     @patch("onkia.dnr_client.requests.get")

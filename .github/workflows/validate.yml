@@ -48,7 +48,7 @@ jobs:
         run: |
           for nb in notebooks/0*.py; do
             echo "::group::Running $nb"
-            python "$nb"
+            marimo run "$nb"
             echo "::endgroup::"
           done
 
