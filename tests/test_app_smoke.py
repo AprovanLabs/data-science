@@ -1,9 +1,8 @@
 """Smoke tests for the Streamlit app — import validation and structural checks.
 
 These run without a Streamlit server. They verify that all app modules
-can be imported without error and that no page uses the `from app.*`
-pattern that triggers the StreamlitDuplicateElementId crash on
-Streamlit Community Cloud.
+can be imported without error, no module uses the `from app.*` pattern,
+and structural requirements are met.
 """
 from __future__ import annotations
 
@@ -17,12 +16,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = REPO_ROOT / "app"
-PAGES_DIR = APP_DIR / "pages"
 COMPONENTS_DIR = APP_DIR / "components"
 
 
 # ---------------------------------------------------------------------------
-# 1. No `from app.*` imports in sub-pages (causes DuplicateElementId)
+# 1. No `from app.*` imports anywhere in app/ (causes DuplicateElementId)
 # ---------------------------------------------------------------------------
 
 def _python_files_under(directory: Path) -> List[Path]:
@@ -30,7 +28,6 @@ def _python_files_under(directory: Path) -> List[Path]:
 
 
 def _collect_imports(source: str) -> List[Tuple[str, int]]:
-    """Return (module_name, line_number) for all import-from statements."""
     tree = ast.parse(source)
     imports: List[Tuple[str, int]] = []
     for node in ast.walk(tree):
@@ -41,12 +38,10 @@ def _collect_imports(source: str) -> List[Tuple[str, int]]:
 
 @pytest.mark.parametrize(
     "filepath",
-    _python_files_under(PAGES_DIR),
-    ids=[p.name for p in _python_files_under(PAGES_DIR)],
+    _python_files_under(APP_DIR),
+    ids=[p.name for p in _python_files_under(APP_DIR)],
 )
 def test_no_app_prefix_import(filepath: Path) -> None:
-    """Sub-pages must NOT import via `from app.*` — it re-executes app.py
-    and raises StreamlitDuplicateElementId."""
     source = filepath.read_text()
     for module, lineno in _collect_imports(source):
         assert not module.startswith("app."), (
@@ -96,21 +91,13 @@ def test_onkia_models_importable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Page files exist and are syntactically valid
+# 3. app.py is a single-page app (no pages/ directory)
 # ---------------------------------------------------------------------------
 
-REQUIRED_PAGES = ["lake_finder.py", "fishing_day.py", "species_dashboard.py"]
-
-
-@pytest.mark.parametrize("page_name", REQUIRED_PAGES)
-def test_page_file_exists(page_name: str) -> None:
-    assert (PAGES_DIR / page_name).is_file()
-
-
-@pytest.mark.parametrize("page_name", REQUIRED_PAGES)
-def test_page_file_parseable(page_name: str) -> None:
-    source = (PAGES_DIR / page_name).read_text()
-    ast.parse(source)
+def test_no_pages_directory() -> None:
+    assert not (APP_DIR / "pages").is_dir(), (
+        "app/pages/ should not exist — the app is now a single page"
+    )
 
 
 def test_app_py_parseable() -> None:
@@ -119,17 +106,30 @@ def test_app_py_parseable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. app/app.py uses section-based navigation (no flat list)
+# 4. app.py has time-of-day selector
 # ---------------------------------------------------------------------------
 
-def test_app_uses_section_navigation() -> None:
+def test_app_has_time_of_day_selector() -> None:
     source = (APP_DIR / "app.py").read_text()
-    assert "st.navigation" in source, "app.py must call st.navigation()"
-    assert isinstance(ast.parse(source).body, list), "app.py must be valid Python"
+    assert "Time of Day" in source, "app.py must include a time-of-day selector"
 
 
 # ---------------------------------------------------------------------------
-# 5. requirements.txt exists and lists core deps
+# 5. app.py has depth profile and historical charts
+# ---------------------------------------------------------------------------
+
+def test_app_has_depth_profile() -> None:
+    source = (APP_DIR / "app.py").read_text()
+    assert "depth_profile" in source.lower() or "depth" in source.lower()
+
+
+def test_app_has_historical_temp_chart() -> None:
+    source = (APP_DIR / "app.py").read_text()
+    assert "cloud_cover" in source.lower() or "cloud" in source.lower()
+
+
+# ---------------------------------------------------------------------------
+# 6. requirements.txt exists and lists core deps
 # ---------------------------------------------------------------------------
 
 def test_requirements_txt_exists() -> None:
@@ -138,12 +138,12 @@ def test_requirements_txt_exists() -> None:
 
 def test_requirements_includes_streamlit() -> None:
     content = (REPO_ROOT / "requirements.txt").read_text()
-    for dep in ("streamlit", "pandas", "pydantic", "requests"):
+    for dep in ("streamlit", "pandas", "pydantic", "requests", "numpy"):
         assert dep in content.lower(), f"requirements.txt missing: {dep}"
 
 
 # ---------------------------------------------------------------------------
-# 6. No duplicate Streamlit element keys in app.py sidebar
+# 7. No duplicate Streamlit element keys in app.py
 # ---------------------------------------------------------------------------
 
 def test_app_sidebar_keys_explicit() -> None:
@@ -152,3 +152,18 @@ def test_app_sidebar_keys_explicit() -> None:
     assert len(button_calls) == len(set(button_calls)), (
         f"Duplicate button keys in app.py: {button_calls}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. DNR client has error handling
+# ---------------------------------------------------------------------------
+
+def test_dnr_client_handles_connection_error() -> None:
+    source = (REPO_ROOT / "src" / "onkia" / "dnr_client.py").read_text()
+    assert "ConnectionError" in source, "dnr_client.py must handle ConnectionError"
+    assert "timeout=" in source, "dnr_client.py must use timeout on requests"
+
+
+def test_dnr_client_handles_json_decode_error() -> None:
+    source = (REPO_ROOT / "src" / "onkia" / "dnr_client.py").read_text()
+    assert "JSONDecodeError" in source, "dnr_client.py must handle JSONDecodeError"

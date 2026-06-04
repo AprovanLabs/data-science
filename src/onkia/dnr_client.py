@@ -48,8 +48,19 @@ class MnDnrLakeTopographyService:
         params: Optional[Mapping[str, str]],
     ) -> Any:
         self._logger.debug("Sending request to %s", endpoint)
-        response = requests.get(endpoint, params=params)
-        response_json = response.json()
+        try:
+            response = requests.get(endpoint, params=params, timeout=15)
+        except requests.exceptions.ConnectionError:
+            self._logger.warning("Connection error for %s", endpoint)
+            return None
+        except requests.exceptions.Timeout:
+            self._logger.warning("Timeout for %s", endpoint)
+            return None
+        try:
+            response_json = response.json()
+        except requests.exceptions.JSONDecodeError:
+            self._logger.warning("JSON decode error for %s", endpoint)
+            return None
         return response_json.get("results", response_json.get("result"))
 
     def _send_csv_request(
@@ -59,7 +70,14 @@ class MnDnrLakeTopographyService:
         delimiter: str = ",",
     ) -> List[Dict[str, str]]:
         self._logger.debug("Sending request to %s", endpoint)
-        raw_response = requests.get(endpoint, params=params)
+        try:
+            raw_response = requests.get(endpoint, params=params, timeout=15)
+        except requests.exceptions.ConnectionError:
+            self._logger.warning("Connection error for %s", endpoint)
+            return []
+        except requests.exceptions.Timeout:
+            self._logger.warning("Timeout for %s", endpoint)
+            return []
         return _csv_to_dicts(raw_response.text, delimiter=delimiter)
 
     def get_lake(self, name: str, county_id: int = 86) -> Optional[Lake]:
@@ -69,10 +87,17 @@ class MnDnrLakeTopographyService:
         )
         if not results:
             return None
-        raw = next(iter(results), None)
+        try:
+            raw = next(iter(results), None)
+        except (TypeError, StopIteration):
+            return None
         if raw is None:
             return None
-        return Lake.model_validate(raw)
+        try:
+            return Lake.model_validate(raw)
+        except Exception:
+            self._logger.warning("Failed to validate lake data for %s", name)
+            return None
 
     def get_survey(self, lake_id: str) -> Optional[SurveyOverview]:
         raw = self._send_request(
@@ -81,7 +106,11 @@ class MnDnrLakeTopographyService:
         )
         if not raw:
             return None
-        return SurveyOverview.model_validate(raw)
+        try:
+            return SurveyOverview.model_validate(raw)
+        except Exception:
+            self._logger.warning("Failed to validate survey data for lake %s", lake_id)
+            return None
 
     def get_species(
         self,
@@ -115,10 +144,22 @@ class MnDnrLakeTopographyService:
     def get_stocking(self, lake_id: str) -> Any:
         import xml.etree.ElementTree as ET
 
-        raw_response = requests.get(
-            self._API_STOCKING_REPORT,
-            params={"downum": lake_id},
-        )
-        root = ET.fromstring(raw_response.text)
+        try:
+            raw_response = requests.get(
+                self._API_STOCKING_REPORT,
+                params={"downum": lake_id},
+                timeout=15,
+            )
+        except requests.exceptions.ConnectionError:
+            self._logger.warning("Connection error for stocking API (lake %s)", lake_id)
+            return None
+        except requests.exceptions.Timeout:
+            self._logger.warning("Timeout for stocking API (lake %s)", lake_id)
+            return None
+        try:
+            root = ET.fromstring(raw_response.text)
+        except ET.ParseError:
+            self._logger.warning("XML parse error for stocking API (lake %s)", lake_id)
+            return None
         self._logger.info("Stocking data retrieved for lake %s", lake_id)
         return root
