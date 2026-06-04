@@ -1,0 +1,122 @@
+{
+  "expectation_suite_name": "fish_survey",
+  "expectations": [
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "species"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "total_catch"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "total_weight"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "gear"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "cpue"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "survey_date"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "species"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "total_catch"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "gear"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": "species",
+        "regex": "^[A-Z]{3}$"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "total_catch",
+        "min_value": 0.0
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "total_weight",
+        "min_value": 0.0
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "gear",
+        "value_set": [
+          "Standard gill nets",
+          "Standard trap nets",
+          "Gill net (all)",
+          "Trap net (all)",
+          "Electroshockers (all)",
+          "Small mesh fyke net",
+          "Large mesh fyke net",
+          "Seine",
+          "Rotenone",
+          "Other"
+        ]
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_strftime_format",
+      "kwargs": {
+        "column": "survey_date",
+        "strftime_format": "%Y-%m-%d"
+      },
+      "meta": {}
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.18.0"
+  }
+}

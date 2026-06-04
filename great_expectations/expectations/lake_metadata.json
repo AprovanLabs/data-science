@@ -1,0 +1,124 @@
+{
+  "expectation_suite_name": "lake_metadata",
+  "expectations": [
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "id"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "county"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "county_id"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "area"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "max_depth"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "id"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "county"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "county_id"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": "id",
+        "regex": "^86\\d{6}$"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "county",
+        "value_set": [
+          "Wright"
+        ]
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_in_type_list",
+      "kwargs": {
+        "column": "county_id",
+        "type_list": [
+          "int64",
+          "int32",
+          "int"
+        ]
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "area",
+        "min_value": 0.0
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "max_depth",
+        "min_value": 0.0
+      },
+      "meta": {}
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.18.0"
+  }
+}
