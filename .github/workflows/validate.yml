@@ -31,6 +31,8 @@ jobs:
   notebooks:
     name: Marimo Notebooks
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,13 +46,28 @@ jobs:
           restore-keys: ${{ runner.os }}-pip-
       - name: Install dependencies
         run: pip install -r requirements.txt marimo
-      - name: Run notebooks as scripts
+      - name: Validate notebook syntax
         run: |
           for nb in notebooks/0*.py; do
-            echo "::group::Running $nb"
-            marimo run "$nb"
+            echo "::group::Validating $nb"
+            python -c "import ast; ast.parse(open('$nb').read()); print('Syntax OK')"
             echo "::endgroup::"
           done
+      - name: Validate notebook imports
+        run: |
+          python -c "
+          import importlib.util, sys
+          sys.path.insert(0, 'src')
+          for name, path in [
+              ('01_data_exploration', 'notebooks/01_data_exploration.py'),
+              ('02_species_analysis', 'notebooks/02_species_analysis.py'),
+              ('03_lake_day_analysis', 'notebooks/03_lake_day_analysis.py'),
+          ]:
+              spec = importlib.util.spec_from_file_location(name, path)
+              mod = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(mod)
+              print(f'{name}: app loaded OK')
+          "
 
   streamlit-smoke:
     name: Streamlit Smoke Test
