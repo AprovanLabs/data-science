@@ -1,0 +1,60 @@
+[
+  {
+    "fishCatchSummaries": [
+      {
+        "species": "NOP",
+        "totalCatch": 80,
+        "totalWeight": 263.0,
+        "CPUE": "5.00",
+        "averageWeight": "3.29",
+        "gear": "Standard gill nets",
+        "gearCount": 16,
+        "quartileCount": "3.0-7.9",
+        "quartileWeight": "1.7-2.8"
+      },
+      {
+        "species": "YEB",
+        "totalCatch": 283,
+        "totalWeight": 133.7,
+        "CPUE": "17.69",
+        "averageWeight": "0.47",
+        "gear": "Standard gill nets",
+        "gearCount": 16,
+        "quartileCount": "0.6-6.4",
+        "quartileWeight": "0.6-0.9"
+      },
+      {
+        "species": "LMB",
+        "totalCatch": 15,
+        "totalWeight": 22.5,
+        "CPUE": "0.75",
+        "averageWeight": "1.50",
+        "gear": "Standard trap nets",
+        "gearCount": 20,
+        "quartileCount": "0.5-3.5",
+        "quartileWeight": "0.4-1.2"
+      }
+    ],
+    "survey_date": "2022-07-18",
+    "survey_type": "Standard Survey",
+    "survey_id": 12345
+  },
+  {
+    "fishCatchSummaries": [
+      {
+        "species": "WAE",
+        "totalCatch": 12,
+        "totalWeight": 18.6,
+        "CPUE": "0.75",
+        "averageWeight": "1.55",
+        "gear": "Standard gill nets",
+        "gearCount": 16,
+        "quartileCount": "0.1-2.5",
+        "quartileWeight": "0.8-3.1"
+      }
+    ],
+    "survey_date": "2019-07-22",
+    "survey_type": "Standard Survey",
+    "survey_id": 67890
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "86025200",
+    "name": "Clearwater",
+    "county": "Wright",
+    "county_id": 86,
+    "morphology": {
+      "area": 3186.89,
+      "max_depth": 73,
+      "mean_depth": 19.2,
+      "shore_length": 34.83,
+      "littoral_area": 1595.6
+    },
+    "fishSpecies": ["largemouth bass", "northern pike", "walleye", "bluegill", "black crappie"],
+    "nearest_town": "Annandale"
+  },
+  {
+    "id": "86022800",
+    "name": "Sugar",
+    "county": "Wright",
+    "county_id": 86,
+    "morphology": {
+      "area": 1112.0,
+      "max_depth": 52,
+      "mean_depth": 14.0,
+      "shore_length": 18.5,
+      "littoral_area": 556.0
+    },
+    "fishSpecies": ["northern pike", "walleye", "bluegill"],
+    "nearest_town": "Annandale"
+  }
+]

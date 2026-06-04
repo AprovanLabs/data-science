@@ -1,0 +1,152 @@
+{
+  "expectation_suite_name": "species_occurrence",
+  "expectations": [
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "FOM ID"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Scientific Name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Common Name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " DOW Number"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Catch"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Date"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Gear"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " Waterbody Type"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": " County"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "FOM ID"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": " Scientific Name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": " Common Name"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": " DOW Number"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": " Date"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": " DOW Number",
+        "regex": "^\\d{8}$"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": " Waterbody Type",
+        "value_set": [
+          "Lake",
+          "Stream",
+          "River"
+        ]
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": " County",
+        "value_set": [
+          "Wright"
+        ]
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_of_type",
+      "kwargs": {
+        "column": "FOM ID",
+        "type_": "str"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_strftime_format",
+      "kwargs": {
+        "column": " Date",
+        "strftime_format": "%Y-%m-%d"
+      },
+      "meta": {}
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.18.0"
+  }
+}

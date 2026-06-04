@@ -1,0 +1,81 @@
+{
+  "expectation_suite_name": "water_levels",
+  "expectations": [
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "CHR_ID"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "ELEVATION"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "READ_DATE"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_to_exist",
+      "kwargs": {
+        "column": "DATUM_ADJ"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "CHR_ID"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "ELEVATION"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "READ_DATE"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": "CHR_ID",
+        "regex": "^\\d{8}$"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_match_strftime_format",
+      "kwargs": {
+        "column": "READ_DATE",
+        "strftime_format": "%Y-%m-%d"
+      },
+      "meta": {}
+    },
+    {
+      "type": "expect_column_values_to_be_of_type",
+      "kwargs": {
+        "column": "ELEVATION",
+        "type_": "float"
+      },
+      "meta": {}
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.18.0"
+  }
+}
