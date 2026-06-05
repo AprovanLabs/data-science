@@ -22,7 +22,7 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 _log = logging.getLogger(__name__)
@@ -309,7 +309,7 @@ def _most_recent_scene_date(collection) -> Optional[date]:
             return None
         latest = collection.sort("system:time_start", False).first()
         ts_ms = latest.get("system:time_start").getInfo()
-        return datetime.utcfromtimestamp(ts_ms / 1000).date()
+        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).date()
     except Exception:
         return None
 
@@ -352,7 +352,7 @@ def get_latest_lst(
         radius_m = lake_radius_m(lake_name)
         region = _build_lake_region(lat, lon, radius_m)
 
-        end_date = datetime.utcnow().date()
+        end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
 
         collection = _landsat_collection(
@@ -422,7 +422,7 @@ def get_lst_history(
         radius_m = lake_radius_m(lake_name)
         region = _build_lake_region(lat, lon, radius_m)
 
-        end_date = datetime.utcnow().date()
+        end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
 
         points: List[LSTHistoryPoint] = []
@@ -487,7 +487,7 @@ def get_ndci(
         radius_m = lake_radius_m(lake_name)
         region = _build_lake_region(lat, lon, radius_m)
 
-        end_date = datetime.utcnow().date()
+        end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
 
         def _apply_ndci(image):
@@ -589,7 +589,7 @@ def get_lst_heatmap_url(
         import ee  # type: ignore[import]
 
         region = _build_lake_region(lat, lon, radius_m)
-        end_date = datetime.utcnow().date()
+        end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
 
         collection = _landsat_collection(
