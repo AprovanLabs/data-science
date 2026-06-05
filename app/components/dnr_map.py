@@ -1,15 +1,21 @@
-"""Reusable Folium map component for Wright County lake visualization."""
+"""Reusable Folium map component for Wright County lake visualization.
+
+Supports depth contour overlays and species-specific preferred zone highlighting.
+"""
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+import json
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import folium
 
-# Wright County, MN center coordinates
+logger = logging.getLogger(__name__)
+
 WRIGHT_COUNTY_CENTER = (45.17, -94.05)
 WRIGHT_COUNTY_ZOOM = 10
 
-# Curated list of major Wright County lakes: name -> (lat, lon, dow_number)
 WRIGHT_COUNTY_LAKES: Dict[str, Tuple[float, float, str]] = {
     "Clearwater": (45.3052, -94.1184, "86025200"),
     "Lake Pulaski": (45.2703, -94.0398, "86099900"),
@@ -28,31 +34,143 @@ WRIGHT_COUNTY_LAKES: Dict[str, Tuple[float, float, str]] = {
     "Lake Ida": (45.0893, -94.2175, "86047300"),
 }
 
+_BATHYMETRY_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "bathymetry"
+
+_CONTOUR_STYLE_BASE = {
+    "weight": 1.5,
+    "opacity": 0.7,
+}
+
+_SPECIES_ZONE_STYLE = {
+    "weight": 2.5,
+    "opacity": 0.85,
+    "dashArray": "6 4",
+}
+
+
+def _slug(name: str) -> str:
+    return name.lower().replace(" ", "_")
+
+
+def _depth_to_color(depth_ft: float) -> str:
+    step = 5
+    band = int(depth_ft // step) * step
+    color_map = {
+        0: "#b3d9ff",
+        5: "#80caff",
+        10: "#4db8ff",
+        15: "#1aa3ff",
+        20: "#008ae6",
+        25: "#006bb3",
+        30: "#004d80",
+        35: "#003566",
+        40: "#00264d",
+        50: "#001a33",
+        60: "#000f1f",
+        70: "#000a14",
+        80: "#00050a",
+    }
+    return color_map.get(band, "#001a33")
+
+
+def load_contours_geojson(lake_name: str, bathymetry_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    bdir = bathymetry_dir or _BATHYMETRY_DIR
+    slug = _slug(lake_name)
+    path = bdir / f"{slug}_contours.geojson"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Failed to load bathymetry for %s", lake_name)
+        return None
+
+
+def add_depth_contours(
+    m: folium.Map,
+    lake_name: str,
+    bathymetry_dir: Optional[Path] = None,
+    show: bool = True,
+) -> Optional[folium.FeatureGroup]:
+    geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
+    if geojson_data is None:
+        return None
+
+    fg = folium.FeatureGroup(name="Depth Contours", show=show)
+
+    for feature in geojson_data.get("features", []):
+        depth = feature.get("properties", {}).get("depth_ft", 0)
+        color = _depth_to_color(depth)
+        style = {**_CONTOUR_STYLE_BASE, "color": color}
+        tooltip = f"{depth:.0f} ft"
+
+        folium.GeoJson(
+            feature,
+            style_function=lambda x, s=style: s,
+            tooltip=tooltip,
+        ).add_to(fg)
+
+    fg.add_to(m)
+    return fg
+
+
+def add_species_zone_overlay(
+    m: folium.Map,
+    lake_name: str,
+    species_name: str,
+    depth_range: Tuple[float, float],
+    zone_color: str,
+    bathymetry_dir: Optional[Path] = None,
+    show: bool = True,
+) -> Optional[folium.FeatureGroup]:
+    geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
+    if geojson_data is None:
+        return None
+
+    matching_features = []
+    for feature in geojson_data.get("features", []):
+        depth = feature.get("properties", {}).get("depth_ft", 0)
+        if depth_range[0] <= depth <= depth_range[1]:
+            matching_features.append(feature)
+
+    if not matching_features:
+        return None
+
+    fg = folium.FeatureGroup(name=f"{species_name} Zone ({depth_range[0]:.0f}-{depth_range[1]:.0f} ft)", show=show)
+
+    collection = {
+        "type": "FeatureCollection",
+        "features": matching_features,
+    }
+
+    style = {**_SPECIES_ZONE_STYLE, "color": zone_color, "fillColor": zone_color, "fillOpacity": 0.25}
+
+    folium.GeoJson(
+        collection,
+        style_function=lambda x, s=style: s,
+        tooltip=f"{species_name}: {depth_range[0]:.0f}-{depth_range[1]:.0f} ft preferred",
+    ).add_to(fg)
+
+    fg.add_to(m)
+    return fg
+
 
 def build_lake_map(
     selected_lake: Optional[str] = None,
     search_results: Optional[List[Dict]] = None,
     center: Tuple[float, float] = WRIGHT_COUNTY_CENTER,
     zoom: int = WRIGHT_COUNTY_ZOOM,
+    show_bathymetry: bool = False,
+    species_zones: Optional[List[Dict[str, Any]]] = None,
+    bathymetry_dir: Optional[Path] = None,
 ) -> folium.Map:
-    """Build a Folium map showing Wright County lakes.
-
-    Args:
-        selected_lake: Name of currently selected lake (highlighted in red).
-        search_results: Additional lake results from DNR API search to overlay.
-        center: Map center as (lat, lon).
-        zoom: Initial zoom level.
-
-    Returns:
-        Configured folium.Map instance.
-    """
     m = folium.Map(
         location=center,
         zoom_start=zoom,
         tiles="OpenStreetMap",
     )
 
-    # Add curated lakes
     for name, (lat, lon, dow) in WRIGHT_COUNTY_LAKES.items():
         is_selected = name == selected_lake
         folium.CircleMarker(
@@ -69,7 +187,6 @@ def build_lake_map(
             ),
         ).add_to(m)
 
-    # Overlay any additional search results from DNR API
     if search_results:
         for lake in search_results:
             lake_name = lake.get("name", "")
@@ -88,5 +205,23 @@ def build_lake_map(
                         ),
                         icon=folium.Icon(color="green", icon="info-sign"),
                     ).add_to(m)
+
+    if selected_lake and show_bathymetry:
+        add_depth_contours(m, selected_lake, bathymetry_dir, show=True)
+
+    if selected_lake and species_zones:
+        for zone in species_zones:
+            add_species_zone_overlay(
+                m,
+                selected_lake,
+                zone["species"],
+                zone["depth_range"],
+                zone["color"],
+                bathymetry_dir,
+                show=True,
+            )
+
+    if show_bathymetry or species_zones:
+        folium.LayerControl(collapsed=False).add_to(m)
 
     return m

@@ -21,6 +21,13 @@ from streamlit_folium import st_folium
 
 from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map
 from onkia.analysis import LakeAnalysis, TrendStatus, analyze_lake, parse_stocking_events  # noqa: F401
+from onkia.bathymetry import (  # noqa: F401
+    available_lakes as bathymetry_available_lakes,
+    contour_color,
+    load_contours,
+    load_depth_profile,
+    species_depth_zone,
+)
 from onkia.dnr_client import MnDnrLakeTopographyService
 from onkia.water_temp import WATER_TEMP_PREFERENCES
 from onkia.models import WaterTempPreference
@@ -250,6 +257,23 @@ with st.sidebar:
     st.divider()
     if st.session_state["selected_lake_name"]:
         st.info(f"Selected: **{st.session_state['selected_lake_name']}**")
+
+    st.divider()
+    st.markdown("**Map Overlays**")
+    show_bathymetry = st.checkbox("Show Depth Contours", value=False, key="chk_bathymetry")
+    show_species_zones = st.checkbox("Show Species Zones", value=False, key="chk_species_zones")
+
+    if show_species_zones:
+        zone_species = st.multiselect(
+            "Species to highlight",
+            options=list(TARGET_SPECIES.keys()),
+            default=list(TARGET_SPECIES.keys()),
+            key="sel_zone_species",
+        )
+    else:
+        zone_species = []
+
+    wind_dir = st.selectbox("Wind Direction", options=["N", "NE", "E", "SE", "S", "SW", "W", "NW"], key="sel_wind_dir")
 
 
 @st.cache_data(show_spinner="Searching DNR database...")
@@ -576,9 +600,31 @@ def _build_depth_temp_chart(
 st.title("Wright County Fishing Intelligence")
 
 st.subheader("Lake Map")
+
+lake_name_for_zones = st.session_state["selected_lake_name"]
+species_zones = []
+if lake_name_for_zones and show_species_zones and zone_species:
+    for sp in zone_species:
+        pref = next((p for p in WATER_TEMP_PREFERENCES if p.species == sp), None)
+        zone = species_depth_zone(
+            species=sp,
+            water_temp_f=65.0,
+            time_of_day="evening",
+            wind_direction=wind_dir,
+            water_temp_pref=pref,
+        )
+        if zone:
+            species_zones.append({
+                "species": sp,
+                "depth_range": zone,
+                "color": SPECIES_COLORS.get(sp, "#457b9d"),
+            })
+
 fmap = build_lake_map(
     selected_lake=st.session_state["selected_lake_name"],
     search_results=st.session_state["dnr_search_results"],
+    show_bathymetry=show_bathymetry,
+    species_zones=species_zones if species_zones else None,
 )
 map_data = st_folium(fmap, width="100%", height=400, returned_objects=["last_object_clicked"])
 
@@ -784,6 +830,69 @@ elif _usgs_lakes and lake_id not in _usgs_lakes:
 elif not _usgs_lakes:
     with st.expander("USGS Depth-Temperature Profile"):
         st.caption("No USGS GLM data loaded. Run `python scripts/download_usgs_glm.py --sample` to generate test data.")
+
+# --- Bathymetry Contours ---
+st.subheader("Bathymetry & Depth Contours")
+
+_bathy_lakes = bathymetry_available_lakes()
+_has_bathy = any(l.lower() == lake_name.lower() for l in _bathy_lakes)
+
+if _has_bathy:
+    contour_data = load_contours(lake_name)
+    profile_data = load_depth_profile(lake_name)
+
+    if contour_data:
+        num_contours = len(contour_data.get("features", []))
+        st.success(f"Depth contours available: **{num_contours}** contour lines for {lake_name}")
+        st.caption("Toggle 'Show Depth Contours' in the sidebar to visualize on the map.")
+
+    if profile_data:
+        with st.expander("Depth Profile"):
+            st.markdown(f"- **Max Depth:** {profile_data.get('max_depth', 'N/A')} ft")
+            depths = profile_data.get("depths", [])
+            if depths:
+                st.markdown(f"- **Contour Depths:** {', '.join(str(int(d)) for d in depths)} ft")
+
+                fig_bathy, ax_bathy = plt.subplots(figsize=(8, 3))
+                ax_bathy.barh(
+                    [f"{d} ft" for d in depths],
+                    [1] * len(depths),
+                    color=[contour_color(d) for d in depths],
+                    edgecolor="#1d3557",
+                    linewidth=0.5,
+                )
+                ax_bathy.set_xlabel("Contour")
+                ax_bathy.set_title(f"Depth Contours -- {lake_name}")
+                ax_bathy.xaxis.set_visible(False)
+                plt.tight_layout()
+                st.pyplot(fig_bathy)
+                plt.close(fig_bathy)
+    else:
+        st.info("Depth profile data not available for this lake.")
+else:
+    if _bathy_lakes:
+        st.info(f"No bathymetry data for **{lake_name}**. Available: {', '.join(_bathy_lakes)}")
+    else:
+        st.caption("No bathymetry contour data loaded. Run `python scripts/prepare_bathymetry.py --sample` to generate test data.")
+
+if species_zones:
+    st.markdown("**Species Depth Zone Summary** (depth contour overlay):")
+    zone_rows = []
+    for z in species_zones:
+        pref = next((p for p in WATER_TEMP_PREFERENCES if p.species == z["species"]), None)
+        cond = "Optimal"
+        if pref and water_temp:
+            from onkia.bathymetry import _temp_condition as _bathy_temp_cond
+            cond = _bathy_temp_cond(water_temp, pref).title()
+        zone_rows.append({
+            "Species": z["species"],
+            "Preferred Depth": f"{z['depth_range'][0]:.0f}-{z['depth_range'][1]:.0f} ft",
+            "Condition": cond,
+        })
+    if zone_rows:
+        st.dataframe(pd.DataFrame(zone_rows), use_container_width=True, hide_index=True)
+
+st.divider()
 
 # --- Satellite Surface Temperature ---
 st.subheader("Satellite Surface Temperature")

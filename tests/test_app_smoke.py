@@ -205,3 +205,34 @@ def test_dnr_client_handles_connection_error() -> None:
 def test_dnr_client_handles_json_decode_error() -> None:
     source = (REPO_ROOT / "src" / "onkia" / "dnr_client.py").read_text()
     assert "JSONDecodeError" in source, "dnr_client.py must handle JSONDecodeError"
+
+
+def test_bathymetry_module_importable() -> None:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    try:
+        from onkia.bathymetry import (
+            available_lakes,
+            contour_color,
+            load_contours,
+            load_depth_profile,
+            species_depth_zone,
+        )
+    except ModuleNotFoundError as exc:
+        pytest.skip(f"Missing runtime dep: {exc.name}")
+    assert callable(available_lakes)
+    assert callable(contour_color)
+    assert callable(load_contours)
+    assert callable(load_depth_profile)
+    assert callable(species_depth_zone)
+
+
+def test_depth_preferences_importable() -> None:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    try:
+        from onkia.water_temp import DEPTH_PREFERENCES
+        from onkia.models import DepthPreference, BathymetryContour
+    except ModuleNotFoundError as exc:
+        pytest.skip(f"Missing runtime dep: {exc.name}")
+    assert len(DEPTH_PREFERENCES) > 0
+    assert DepthPreference is not None
+    assert BathymetryContour is not None
