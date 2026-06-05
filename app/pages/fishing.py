@@ -1,16 +1,15 @@
 """Fishing Intelligence — Wright County, MN.
 
 Loaded as a page inside the AprovanLabs Data Science hub.
+Requires onkia package installed (pip install -e .) or PYTHONPATH=src.
 Run the hub with:
 
     streamlit run app/app.py
 """
 from __future__ import annotations
 
-import sys
 import xml.etree.ElementTree as ET
 from datetime import date, time, timedelta
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
