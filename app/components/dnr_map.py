@@ -1,9 +1,16 @@
 """Reusable Folium map component for Wright County lake visualization."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import folium
+
+# Make src/ importable when this module is loaded from the app directory
+_src = Path(__file__).resolve().parents[2] / "src"
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
 
 # Wright County, MN center coordinates
 WRIGHT_COUNTY_CENTER = (45.17, -94.05)
@@ -89,4 +96,78 @@ def build_lake_map(
                         icon=folium.Icon(color="green", icon="info-sign"),
                     ).add_to(m)
 
+    return m
+
+
+def add_depth_contours(
+    m: folium.Map,
+    geojson: dict,
+    species_zone: Optional[Tuple[float, float]] = None,
+    species_color: str = "#f4a261",
+    layer_name: str = "Depth Contours",
+) -> folium.Map:
+    """Add depth-contour polygons and an optional species zone overlay to *m*.
+
+    Contours are drawn as filled polygons from shallowest (outermost) to
+    deepest.  When *species_zone* is provided, contour bands within that
+    depth range are highlighted with a distinct fill colour and thicker border.
+
+    Args:
+        m: Folium map to modify in place.
+        geojson: GeoJSON FeatureCollection produced by
+            :func:`onkia.bathymetry.generate_depth_contours_geojson`.
+        species_zone: ``(min_depth_ft, max_depth_ft)`` to highlight, or
+            ``None`` for plain depth display.
+        species_color: Hex fill colour for the species zone highlight.
+        layer_name: Name shown in the Folium layer-control panel.
+
+    Returns:
+        The same *m* with layers added.
+    """
+    if not geojson or not geojson.get("features"):
+        return m
+
+    min_zone, max_zone = species_zone if species_zone else (None, None)
+
+    def _style(feature: dict) -> dict:
+        props = feature["properties"]
+        depth = props.get("depth_ft", 0)
+        in_zone = (
+            min_zone is not None
+            and max_zone is not None
+            and min_zone <= depth <= max_zone
+        )
+        if in_zone:
+            return {
+                "fillColor": species_color,
+                "color": species_color,
+                "weight": 2.5,
+                "fillOpacity": 0.55,
+                "opacity": 0.9,
+            }
+        return {
+            "fillColor": props.get("color", "#4299e1"),
+            "color": "#1a365d",
+            "weight": props.get("weight", 1),
+            "fillOpacity": props.get("fill_opacity", 0.45),
+            "opacity": props.get("line_opacity", 0.7),
+        }
+
+    def _highlight(feature: dict) -> dict:
+        return {"weight": 3, "fillOpacity": 0.7}
+
+    def _tooltip(feature: dict) -> str:
+        depth = feature["properties"].get("depth_ft", "?")
+        return f"Depth: {depth} ft"
+
+    contour_layer = folium.FeatureGroup(name=layer_name, show=True)
+    folium.GeoJson(
+        geojson,
+        style_function=_style,
+        highlight_function=_highlight,
+        tooltip=folium.GeoJsonTooltip(fields=["depth_ft"], aliases=["Depth (ft):"], localize=True),
+    ).add_to(contour_layer)
+    contour_layer.add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
     return m

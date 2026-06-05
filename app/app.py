@@ -25,7 +25,14 @@ _src = Path(__file__).resolve().parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
+from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map, add_depth_contours  # noqa: E402
+from onkia.bathymetry import (  # noqa: E402
+    SPECIES_DEPTH_PREFS,
+    generate_depth_contours_geojson,
+    get_species_zone_depths,
+    get_wind_shore_note,
+    load_bathymetry_geojson,
+)
 from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
 from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
@@ -292,6 +299,17 @@ def _get_weather_cached(lat: float, lon: float, query_date_str: str, start_hour:
     from onkia.weather import get_weather_for_window as _gw
     qd = date.fromisoformat(query_date_str)
     return _gw(lat, lon, qd, start_hour, end_hour)
+
+
+@st.cache_data(show_spinner="Loading bathymetry data…")
+def _load_bathymetry(lake_name: str, lat: float, lon: float, max_depth_ft: float, area_acres: float) -> Optional[dict]:
+    """Return GeoJSON from file if available; otherwise generate on-the-fly."""
+    geojson = load_bathymetry_geojson(lake_name)
+    if geojson is not None:
+        return geojson
+    if max_depth_ft > 0 and area_acres > 0:
+        return generate_depth_contours_geojson(lake_name, lat, lon, max_depth_ft, area_acres)
+    return None
 
 
 @st.cache_data(show_spinner="Loading stocking data from DNR…")
@@ -651,6 +669,116 @@ for pref in target_prefs:
             st.markdown(f"🌙 **{time_of_day.title()} tip:** Low-light conditions favor active feeding — use noisy/scented presentations.")
         elif time_of_day == "midday":
             st.markdown("☀️ **Midday tip:** Fish deeper and slower. Try vertical jigging or live bait under a slip bobber.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Bathymetry: depth contours + species preferred-zone map
+# ---------------------------------------------------------------------------
+
+st.subheader("🌊 Bathymetry — Depth Contours & Species Zones")
+
+_bathy_col1, _bathy_col2 = st.columns([1, 2])
+with _bathy_col1:
+    show_depth_map = st.checkbox("Show depth contour map", value=True, key="chk_depth_map")
+with _bathy_col2:
+    zone_species = st.selectbox(
+        "Highlight preferred zone for species",
+        options=["None"] + list(SPECIES_DEPTH_PREFS.keys()),
+        key="sel_zone_species",
+    )
+
+# Load bathymetry GeoJSON for the selected lake
+_bathy_data: Optional[dict] = None
+_survey_max_depth = 0.0
+_survey_area = 0.0
+
+_survey_mean_depth = 0.0
+if lake_name and lake_id:
+    try:
+        _sv = _load_survey(lake_id)
+    except Exception:
+        _sv = None
+    if _sv:
+        _survey_max_depth = float(_sv.get("max_depth_feet") or 0)
+        _survey_area = float(_sv.get("area_acres") or 0)
+        _survey_mean_depth = float(_sv.get("mean_depth_feet") or 0)
+    if lake_name in WRIGHT_COUNTY_LAKES:
+        _blat, _blon, _ = WRIGHT_COUNTY_LAKES[lake_name]
+        _bathy_data = _load_bathymetry(lake_name, _blat, _blon, _survey_max_depth, _survey_area)
+
+if show_depth_map and _bathy_data:
+    # Determine species zone based on current conditions
+    _zone: Optional[Tuple[float, float]] = None
+    _zone_color = "#f4a261"
+    if zone_species != "None":
+        _sp_pref = next((p for p in WATER_TEMP_PREFERENCES if p.species == zone_species), None)
+        _tc = _temp_condition(water_temp, _sp_pref) if _sp_pref else "optimal"
+        _zone = get_species_zone_depths(
+            zone_species, time_of_day, _tc, _survey_max_depth or 30.0
+        )
+        _zone_color = SPECIES_COLORS.get(zone_species, "#f4a261")
+        if _zone:
+            st.info(
+                f"**{zone_species} preferred zone:** {_zone[0]:.0f}–{_zone[1]:.0f} ft "
+                f"({time_of_day}, {_tc} conditions)"
+            )
+
+    # Wind shore advisory
+    _wind_deg = weather.wind_direction_deg if weather else None
+    _wind_note = get_wind_shore_note(_wind_deg)
+    if _wind_note:
+        st.caption(f"🌬️ {_wind_note}")
+
+    # Build zoomed map centred on the selected lake
+    if lake_name in WRIGHT_COUNTY_LAKES:
+        _zlat, _zlon, _zdow = WRIGHT_COUNTY_LAKES[lake_name]
+        _zmap = build_lake_map(
+            selected_lake=lake_name,
+            center=(_zlat, _zlon),
+            zoom=13,
+        )
+        add_depth_contours(
+            _zmap,
+            _bathy_data,
+            species_zone=_zone,
+            species_color=_zone_color,
+            layer_name=f"Depth Contours — {lake_name}",
+        )
+        st_folium(_zmap, width="100%", height=420, key="bathy_map")
+
+    # Depth legend
+    with st.expander("ℹ️ Depth colour legend"):
+        from onkia.bathymetry import depth_contour_color as _dcc
+        _max_d_legend = _survey_max_depth or 30.0
+        _legend_depths = [_max_d_legend * i / 5 for i in range(1, 6)]
+        _cols = st.columns(len(_legend_depths))
+        for _ci, _ld in zip(_cols, _legend_depths):
+            _hex = _dcc(_ld, _max_d_legend)
+            _ci.markdown(
+                f'<div style="background:{_hex};padding:6px;border-radius:4px;'
+                f'text-align:center;color:white;font-size:12px">{_ld:.0f} ft</div>',
+                unsafe_allow_html=True,
+            )
+
+elif show_depth_map and not _bathy_data:
+    if lake_name:
+        st.info(
+            f"No bathymetry data available for **{lake_name}**. "
+            "Survey data may not yet be loaded — select the lake and ensure DNR survey data loads."
+        )
+
+# Depth profile chart (always show when morphology is available)
+if _survey_max_depth and _survey_area:
+    with st.expander(f"📉 Depth profile — {lake_name}"):
+        _mean_d_for_chart = _survey_mean_depth if _survey_mean_depth else _survey_max_depth * 0.4
+        _fig_depth = _build_depth_profile(_survey_max_depth, _mean_d_for_chart, _survey_area)
+        st.pyplot(_fig_depth)
+        plt.close(_fig_depth)
+        st.caption(
+            "Synthetic hypsometric curve based on DNR survey morphology. "
+            "Actual contour shapes from MN Geospatial Commons data when available."
+        )
 
 st.divider()
 

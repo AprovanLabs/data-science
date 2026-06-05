@@ -165,3 +165,6 @@ great_expectations/uncommitted/
 # Cached data (refresh on demand)
 data/*
 !data/.gitkeep
+!data/bathymetry/
+data/bathymetry/*
+!data/bathymetry/*.geojson
