@@ -76,7 +76,7 @@ page = st.navigation({
         st.Page(home, title="Home", url_path="", default=True),
     ],
     "Apps": [
-        st.Page("pages/fishing.py", title="Fishing Intelligence", icon=":material/fishing:", url_path="fishing"),
+        st.Page("pages/fishing.py", title="Fishing Intelligence", icon="🎣", url_path="fishing"),
     ],
 })
 
