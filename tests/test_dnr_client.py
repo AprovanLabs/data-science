@@ -8,6 +8,8 @@ import pytest
 
 from onkia.dnr_client import MnDnrLakeTopographyService
 from onkia.models import (
+    BathymetryContour,
+    DepthPreference,
     FishCatchSummary,
     Lake,
     Morphology,
@@ -17,7 +19,7 @@ from onkia.models import (
     WaterLevelReading,
     WaterTempPreference,
 )
-from onkia.water_temp import WATER_TEMP_PREFERENCES
+from onkia.water_temp import WATER_TEMP_PREFERENCES, DEPTH_PREFERENCES
 
 
 @pytest.fixture
@@ -297,3 +299,34 @@ class TestModels:
             gear_count=20,
         )
         assert catch.cpue == "0.55"
+
+
+class TestDepthPreferences:
+    def test_count(self):
+        assert len(DEPTH_PREFERENCES) == 9
+
+    def test_first_entry(self):
+        assert DEPTH_PREFERENCES[0].species == "Largemouth Bass"
+        assert DEPTH_PREFERENCES[0].optimal_range == "4-10"
+
+    def test_walleye_depth(self):
+        wae = next(d for d in DEPTH_PREFERENCES if d.species == "Walleye")
+        assert wae.optimal_range == "8-18"
+        assert wae.cold_range == "20-35"
+        assert wae.warm_range == "20-30"
+
+    def test_all_are_depth_preference(self):
+        assert all(isinstance(d, DepthPreference) for d in DEPTH_PREFERENCES)
+
+
+class TestBathymetryContourModel:
+    def test_basic(self):
+        c = BathymetryContour(depth_ft=25.0)
+        assert c.depth_ft == 25.0
+
+    def test_with_geometry(self):
+        c = BathymetryContour(
+            depth_ft=15.0,
+            geometry={"type": "Polygon", "coordinates": [[[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]]]},
+        )
+        assert c.geometry["type"] == "Polygon"
