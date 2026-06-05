@@ -26,6 +26,7 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
+from onkia.analysis import LakeAnalysis, TrendStatus, analyze_lake, parse_stocking_events  # noqa: E402
 from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
 from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
@@ -306,6 +307,82 @@ def _load_stocking_xml(lake_id: str) -> str:
         return resp.text
     except Exception:
         return ""
+
+
+@st.cache_data(show_spinner="Computing trend analysis…")
+def _compute_trend_analysis(lake_id: str, lake_name: str) -> Optional[dict]:
+    """Run analyze_lake and return a JSON-serialisable dict for caching."""
+    try:
+        svc = MnDnrLakeTopographyService()
+        overview = svc.get_survey(lake_id)
+        if not overview:
+            return None
+        import requests as _req
+        import xml.etree.ElementTree as ET
+
+        try:
+            resp = _req.get(
+                "https://files.dnr.state.mn.us/cgi-bin/lk_stocking.cgi",
+                params={"downum": lake_id},
+                timeout=15,
+            )
+            xml_text = resp.text
+        except Exception:
+            xml_text = ""
+
+        # Parse stocking XML into record dicts (same logic as _parse_stocking)
+        stocking_records: List[Dict] = []
+        if xml_text.strip():
+            try:
+                root = ET.fromstring(xml_text)
+                for item in root.iter():
+                    if item.tag in ("stocking", "record", "row"):
+                        record = {child.tag: child.text for child in item}
+                        if record:
+                            stocking_records.append(record)
+            except ET.ParseError:
+                pass
+
+        analysis = analyze_lake(lake_name, overview, stocking_records=stocking_records)
+        # Serialise to plain dicts so st.cache_data can pickle it
+        return {
+            "lake_name": analysis.lake_name,
+            "species_trends": [
+                {
+                    "species": t.species,
+                    "status": t.status.value,
+                    "evidence": t.evidence,
+                    "latest_cpue": t.latest_cpue,
+                    "earliest_cpue": t.earliest_cpue,
+                    "survey_years": t.survey_years,
+                    "avg_weight_lbs": t.avg_weight_lbs,
+                    "avg_weight_trend": t.avg_weight_trend.value,
+                    "best_gear": t.best_gear,
+                }
+                for t in analysis.species_trends
+            ],
+            "water_clarity": (
+                {
+                    "status": analysis.water_clarity.status.value,
+                    "evidence": analysis.water_clarity.evidence,
+                    "recent_clarity_ft": analysis.water_clarity.recent_clarity_ft,
+                    "earliest_clarity_ft": analysis.water_clarity.earliest_clarity_ft,
+                }
+                if analysis.water_clarity
+                else None
+            ),
+            "stocking_events": [
+                {
+                    "species": e.species,
+                    "year": e.year,
+                    "quantity": e.quantity,
+                    "life_stage": e.life_stage,
+                }
+                for e in analysis.stocking_events
+            ],
+        }
+    except Exception:
+        return None
 
 
 @st.cache_data(show_spinner="Loading survey data for {lake_name}…")
@@ -744,6 +821,61 @@ if survey_data:
         st.info("No survey data available for this lake.")
 else:
     st.warning("Could not load survey data from DNR — API may be unavailable. The fishing recommendations above still work based on seasonal estimates.")
+
+st.divider()
+
+# --- Species Trend Analysis ---
+st.subheader("📈 Species Trend Analysis")
+st.caption("Population trends with traceable evidence from historical DNR surveys.")
+
+_trend_data = _compute_trend_analysis(lake_id, lake_name)
+
+if _trend_data and _trend_data.get("species_trends"):
+    _STATUS_ICON = {
+        "INCREASING": "🟢",
+        "DECREASING": "🔴",
+        "STABLE": "🟡",
+        "INSUFFICIENT_DATA": "⚪",
+    }
+    _STATUS_LABEL = {
+        "INCREASING": "Increasing",
+        "DECREASING": "Declining",
+        "STABLE": "Stable",
+        "INSUFFICIENT_DATA": "Insufficient data",
+    }
+
+    for trend in _trend_data["species_trends"]:
+        icon = _STATUS_ICON.get(trend["status"], "⚪")
+        label = _STATUS_LABEL.get(trend["status"], trend["status"])
+        with st.expander(f"{icon} **{trend['species']}** — {label}", expanded=True):
+            st.markdown(f"**Population trend:** {icon} {label}")
+            st.markdown(f"**Evidence:** {trend['evidence']}")
+
+            col_cpue, col_weight, col_gear = st.columns(3)
+            with col_cpue:
+                if trend["latest_cpue"] is not None:
+                    st.metric("Latest CPUE", f"{trend['latest_cpue']:.2f}")
+            with col_weight:
+                if trend["avg_weight_lbs"] is not None:
+                    wt_icon = _STATUS_ICON.get(trend["avg_weight_trend"], "⚪")
+                    st.metric("Avg Weight (lbs)", f"{trend['avg_weight_lbs']:.2f}", delta=f"{wt_icon} weight trend")
+            with col_gear:
+                if trend["best_gear"]:
+                    st.metric("Best Gear", trend["best_gear"])
+
+            if trend["survey_years"]:
+                years_str = ", ".join(str(y) for y in trend["survey_years"])
+                st.caption(f"Survey years with data: {years_str}")
+
+    # Water clarity section
+    if _trend_data.get("water_clarity"):
+        clarity = _trend_data["water_clarity"]
+        clarity_icon = _STATUS_ICON.get(clarity["status"], "⚪")
+        clarity_label = _STATUS_LABEL.get(clarity["status"], clarity["status"])
+        st.markdown(f"**Water Clarity:** {clarity_icon} {clarity_label}")
+        st.markdown(f"_{clarity['evidence']}_")
+else:
+    st.info("Trend analysis unavailable — DNR survey data could not be loaded.")
 
 st.divider()
 
