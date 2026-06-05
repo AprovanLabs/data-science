@@ -73,7 +73,7 @@ def home():
 
 page = st.navigation({
     "Hub": [
-        st.Page(home, title="Home", url_path=""),
+        st.Page(home, title="Home", url_path="", default=True),
     ],
     "Apps": [
         st.Page("pages/fishing.py", title="Fishing Intelligence", icon=":material/fishing:", url_path="fishing"),
