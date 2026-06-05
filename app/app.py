@@ -3,18 +3,16 @@
 Multi-page app with a generic landing page and pluggable modules.
 Run with:
 
+    pip install -e .
     streamlit run app/app.py
+
+Or without installing the package:
+
+    PYTHONPATH=src streamlit run app/app.py
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import streamlit as st
-
-_src = Path(__file__).resolve().parent.parent / "src"
-if str(_src) not in sys.path:
-    sys.path.insert(0, str(_src))
 
 st.set_page_config(
     page_title="AprovanLabs",

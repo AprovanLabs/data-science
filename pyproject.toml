@@ -3,6 +3,9 @@ name = "aprovan_data_science"
 description = "Core data science repository"
 authors = []
 version = "0.1.0"
+packages = [
+    { include = "onkia", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
@@ -29,4 +32,8 @@ black = {version = "^23.7", allow-prereleases = true}
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.23.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
