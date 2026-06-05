@@ -78,6 +78,25 @@ def test_onkia_importable() -> None:
     assert callable(get_weather_for_window)
 
 
+def test_onkia_usgs_glm_importable() -> None:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    try:
+        from onkia.usgs_glm import (
+            get_temperature_profile,
+            get_thermocline_depth,
+            get_species_depth_zones,
+            get_climatological_profile,
+            available_lakes,
+            has_data,
+        )
+    except ModuleNotFoundError as exc:
+        pytest.skip(f"Missing runtime dep: {exc.name}")
+    assert callable(get_temperature_profile)
+    assert callable(get_thermocline_depth)
+    assert callable(get_species_depth_zones)
+    assert callable(available_lakes)
+
+
 def test_onkia_models_importable() -> None:
     sys.path.insert(0, str(REPO_ROOT / "src"))
     try:
@@ -124,6 +143,13 @@ def test_app_has_time_of_day_selector() -> None:
 def test_app_has_depth_profile() -> None:
     source = (APP_DIR / "app.py").read_text()
     assert "depth_profile" in source.lower() or "depth" in source.lower()
+
+
+def test_app_has_usgs_glm_integration() -> None:
+    source = (APP_DIR / "app.py").read_text()
+    assert "usgs_glm" in source.lower() or "get_temperature_profile" in source
+    assert "thermocline" in source.lower()
+    assert "species_depth_zones" in source.lower() or "depth_temp" in source.lower()
 
 
 def test_app_has_historical_temp_chart() -> None:

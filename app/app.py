@@ -30,6 +30,13 @@ from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
 from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
 from onkia.weather import get_weather_for_window, wind_direction_label  # noqa: E402
+from onkia.usgs_glm import (  # noqa: E402
+    get_temperature_profile,
+    get_thermocline_depth,
+    get_species_depth_zones,
+    has_data,
+    available_lakes,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -451,6 +458,55 @@ def _build_cloud_cover_year_chart() -> plt.Figure:
     return fig
 
 
+def _c_to_f(c: float) -> float:
+    return c * 9.0 / 5.0 + 32.0
+
+
+def _m_to_ft(m: float) -> float:
+    return m * 3.28084
+
+
+def _build_depth_temp_chart(
+    profile: pd.DataFrame,
+    thermo_depth_m: Optional[float],
+    species_zones: Optional[List[Dict]],
+    lake_name: str,
+) -> plt.Figure:
+    """Depth-temperature profile chart with species preference bands."""
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    depths_ft = _m_to_ft(profile["depth_m"].values)
+    temps_f = _c_to_f(profile["temp_c"].values)
+
+    ax.plot(temps_f, depths_ft, color="#1d3557", linewidth=2.5, label="Temperature")
+
+    if thermo_depth_m is not None:
+        thermo_ft = _m_to_ft(thermo_depth_m)
+        ax.axhline(y=thermo_ft, color="#e63946", linestyle="--", linewidth=1.5,
+                    label=f"Thermocline ({thermo_ft:.1f} ft)")
+
+    if species_zones:
+        for zone in species_zones:
+            species = zone["species"]
+            color = SPECIES_COLORS.get(species, "#999999")
+            opt_low = zone.get("opt_depth_low_m")
+            opt_high = zone.get("opt_depth_high_m")
+            if opt_low is not None and opt_high is not None:
+                low_ft = _m_to_ft(opt_low)
+                high_ft = _m_to_ft(opt_high)
+                ax.axhspan(low_ft, high_ft, alpha=0.15, color=color,
+                           label=f"{species} zone ({low_ft:.0f}–{high_ft:.0f} ft)")
+
+    ax.set_xlabel("Temperature (°F)")
+    ax.set_ylabel("Depth (ft)")
+    ax.set_title(f"Depth-Temperature Profile — {lake_name}")
+    ax.invert_yaxis()
+    ax.legend(fontsize=7, loc="lower left")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Main page
 # ---------------------------------------------------------------------------
@@ -565,6 +621,13 @@ else:
 water_temp = weather.air_temp_f if weather.air_temp_f is not None else _estimate_water_temp(selected_date)
 cloud_cover = weather.cloud_cover_pct if weather.cloud_cover_pct is not None else _estimate_cloud_cover(selected_date)
 
+_usgs_lakes_check = available_lakes()
+_usgs_profile_check = None
+if _usgs_lakes_check and lake_id in _usgs_lakes_check:
+    _usgs_profile_check = get_temperature_profile(lake_id, selected_date)
+    if _usgs_profile_check is not None and len(_usgs_profile_check) > 0:
+        water_temp = _c_to_f(_usgs_profile_check.iloc[0]["temp_c"])
+
 tod = _TIME_OF_DAY_ADVICE[time_of_day]
 st.info(f"**{tod['label']}** — {tod['note']}")
 
@@ -599,6 +662,70 @@ with st.expander("📈 Seasonal Temperature & Cloud Cover Charts"):
     plt.tight_layout()
     st.pyplot(fig_combo)
     plt.close(fig_combo)
+
+# --- USGS GLM Depth-Temperature Profile ---
+_usgs_lakes = available_lakes()
+if _usgs_lakes and lake_id in _usgs_lakes:
+    st.subheader("🌊 Depth-Temperature Profile (USGS GLM)")
+
+    usgs_profile = get_temperature_profile(lake_id, selected_date)
+    usgs_thermo = get_thermocline_depth(lake_id, selected_date)
+
+    species_pref_dicts = [
+        {
+            "species": p.species,
+            "optimum": p.optimum,
+            "lower_avoidance": p.lower_avoidance,
+            "upper_avoidance": p.upper_avoidance,
+        }
+        for p in WATER_TEMP_PREFERENCES
+        if p.species in TARGET_SPECIES
+    ]
+    usgs_zones = get_species_depth_zones(lake_id, selected_date, species_pref_dicts)
+
+    if usgs_profile is not None:
+        col_depth_info, col_depth_chart = st.columns([1, 2])
+        with col_depth_info:
+            surface_c = usgs_profile.iloc[0]["temp_c"]
+            surface_f = _c_to_f(surface_c)
+            bottom_c = usgs_profile.iloc[-1]["temp_c"]
+            bottom_f = _c_to_f(bottom_c)
+            st.metric("Surface Temp", f"{surface_f:.1f}°F")
+            st.metric("Bottom Temp", f"{bottom_f:.1f}°F")
+            if usgs_thermo is not None:
+                thermo_ft = _m_to_ft(usgs_thermo)
+                st.metric("Thermocline", f"{thermo_ft:.1f} ft ({usgs_thermo:.1f} m)")
+            else:
+                st.info("No thermocline detected (isothermal or ice-covered)")
+
+            if usgs_zones:
+                zone_rows = []
+                for z in usgs_zones:
+                    low = z.get("opt_depth_low_m")
+                    high = z.get("opt_depth_high_m")
+                    zone_rows.append({
+                        "Species": z["species"],
+                        "Optimum Depth": f"{_m_to_ft(low):.0f}–{_m_to_ft(high):.0f} ft" if low and high else "N/A",
+                    })
+                st.dataframe(pd.DataFrame(zone_rows), use_container_width=True, hide_index=True)
+
+        with col_depth_chart:
+            fig_depth_temp = _build_depth_temp_chart(
+                usgs_profile, usgs_thermo, usgs_zones, lake_name,
+            )
+            st.pyplot(fig_depth_temp)
+            plt.close(fig_depth_temp)
+
+        if selected_date.year > 2021:
+            st.caption("USGS GLM data ends in 2021. Showing climatological average for this day of year.")
+    else:
+        st.info("No depth-temperature profile available for this date.")
+elif _usgs_lakes and lake_id not in _usgs_lakes:
+    with st.expander("🌊 USGS Depth-Temperature Profile"):
+        st.info("This lake is not in the USGS GLM dataset. Depth-resolved temperature is unavailable.")
+elif not _usgs_lakes:
+    with st.expander("🌊 USGS Depth-Temperature Profile"):
+        st.caption("No USGS GLM data loaded. Run `python scripts/download_usgs_glm.py --sample` to generate test data, or `python scripts/download_usgs_glm.py` to download from USGS.")
 
 # --- Species Suitability ---
 st.subheader("🐟 Species Suitability")
