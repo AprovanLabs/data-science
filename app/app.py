@@ -38,6 +38,16 @@ from onkia.usgs_glm import (  # noqa: E402
     has_data,
     available_lakes,
 )
+from onkia.satellite_lst import (  # noqa: E402
+    HEATMAP_THRESHOLD_ACRES,
+    LAKE_ACRES,
+    LST_USEFUL_THRESHOLD_ACRES,
+    get_latest_lst,
+    get_lst_history,
+    get_lst_heatmap_url,
+    get_ndci,
+    lake_radius_m,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -390,6 +400,26 @@ def _compute_trend_analysis(lake_id: str, lake_name: str) -> Optional[dict]:
         }
     except Exception:
         return None
+
+
+@st.cache_data(ttl=3600, show_spinner="Fetching satellite surface temperature…")
+def _get_satellite_lst_cached(lake_name: str, lat: float, lon: float):
+    return get_latest_lst(lake_name, lat, lon)
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading satellite LST history…")
+def _get_satellite_lst_history_cached(lake_name: str, lat: float, lon: float):
+    return get_lst_history(lake_name, lat, lon, days_back=180)
+
+
+@st.cache_data(ttl=3600, show_spinner="Fetching chlorophyll index…")
+def _get_ndci_cached(lake_name: str, lat: float, lon: float):
+    return get_ndci(lake_name, lat, lon)
+
+
+@st.cache_data(ttl=3600, show_spinner="Generating LST heatmap…")
+def _get_heatmap_url_cached(lat: float, lon: float, radius_m: float):
+    return get_lst_heatmap_url(lat, lon, radius_m)
 
 
 @st.cache_data(show_spinner="Loading survey data for {lake_name}…")
@@ -803,6 +833,98 @@ elif _usgs_lakes and lake_id not in _usgs_lakes:
 elif not _usgs_lakes:
     with st.expander("🌊 USGS Depth-Temperature Profile"):
         st.caption("No USGS GLM data loaded. Run `python scripts/download_usgs_glm.py --sample` to generate test data, or `python scripts/download_usgs_glm.py` to download from USGS.")
+
+# --- Satellite Surface Temperature ---
+st.subheader("🛰️ Satellite Surface Temperature")
+
+_lake_acres = LAKE_ACRES.get(lake_name, 0.0)
+_sat_lst = None
+
+if _lake_acres >= LST_USEFUL_THRESHOLD_ACRES:
+    _sat_lst = _get_satellite_lst_cached(lake_name, lat, lon)
+
+    if _sat_lst and not _sat_lst.fallback_used and _sat_lst.temp_fahrenheit is not None:
+        col_sat1, col_sat2, col_sat3 = st.columns(3)
+        with col_sat1:
+            st.metric(
+                "Satellite LST",
+                f"{_sat_lst.temp_fahrenheit:.1f}°F ({_sat_lst.temp_celsius:.1f}°C)",
+            )
+        with col_sat2:
+            obs_label = _sat_lst.observation_date.strftime("%b %d, %Y") if _sat_lst.observation_date else "—"
+            st.metric("Observation Date", obs_label)
+        with col_sat3:
+            st.metric("Scenes Composited", _sat_lst.scene_count)
+
+        # Override water_temp with satellite observation for species logic below
+        water_temp = _sat_lst.temp_fahrenheit
+        st.caption(
+            f"Surface temperature from {_sat_lst.satellite} thermal imagery. "
+            "Replaces seasonal estimate for species suitability."
+        )
+
+        # Sentinel-2 NDCI
+        _ndci = _get_ndci_cached(lake_name, lat, lon)
+        if _ndci and not _ndci.fallback_used and _ndci.ndci_value is not None:
+            _cat_labels = {
+                "low": "🟢 Low (clear)",
+                "moderate": "🟡 Moderate",
+                "high": "🔴 High (algae risk)",
+            }
+            _cat_label = _cat_labels.get(_ndci.chlorophyll_category or "", "—")
+            _ndci_obs = _ndci.observation_date.strftime("%b %d, %Y") if _ndci.observation_date else "—"
+            st.info(
+                f"**Chlorophyll-a (NDCI):** {_ndci.ndci_value:.3f} — {_cat_label}  "
+                f"(Sentinel-2, {_ndci_obs})"
+            )
+
+        # Historical LST trend
+        with st.expander("📈 Historical LST Trend (last 6 months)"):
+            _history = _get_satellite_lst_history_cached(lake_name, lat, lon)
+            if _history:
+                _hist_dates = [p.observation_date for p in _history]
+                _hist_temps = [p.temp_fahrenheit for p in _history]
+                fig_lst, ax_lst = plt.subplots(figsize=(10, 3))
+                ax_lst.plot(_hist_dates, _hist_temps, marker="o", color="#e63946", linewidth=2, markersize=5)
+                ax_lst.fill_between(_hist_dates, _hist_temps, alpha=0.15, color="#e63946")
+                ax_lst.set_ylabel("Surface Temp (°F)")
+                ax_lst.set_title(f"Satellite LST — {lake_name} (last 6 months)")
+                ax_lst.set_ylim(25, 90)
+                plt.tight_layout()
+                st.pyplot(fig_lst)
+                plt.close(fig_lst)
+            else:
+                st.info("No historical Landsat data found for this lake in the last 6 months.")
+
+        # Spatial heatmap for large lakes
+        if _lake_acres >= HEATMAP_THRESHOLD_ACRES:
+            with st.expander("🌡️ Spatial Temperature Map"):
+                _heatmap_url = _get_heatmap_url_cached(lat, lon, lake_radius_m(lake_name))
+                if _heatmap_url:
+                    st.image(
+                        _heatmap_url,
+                        caption=f"LST spatial heatmap — {lake_name} (blue=cold, red=warm)",
+                        use_column_width=True,
+                    )
+                else:
+                    st.info("Spatial heatmap unavailable — no recent cloud-free Landsat coverage.")
+    else:
+        _err = getattr(_sat_lst, "error_msg", None) if _sat_lst else None
+        if _err and "not initialised" not in _err:
+            st.caption(f"⚠️ Satellite LST unavailable: {_err}")
+        else:
+            st.info(
+                "Satellite surface temperature requires Google Earth Engine credentials "
+                "(set `EE_SERVICE_ACCOUNT_EMAIL` and `EE_SERVICE_ACCOUNT_KEY_PATH`). "
+                "Using seasonal estimate below."
+            )
+else:
+    st.caption(
+        f"Satellite LST not shown — {lake_name} ({int(_lake_acres)} acres) is below "
+        f"the {int(LST_USEFUL_THRESHOLD_ACRES)}-acre threshold for meaningful thermal pixels."
+    )
+
+st.divider()
 
 # --- Species Suitability ---
 st.subheader("🐟 Species Suitability")
