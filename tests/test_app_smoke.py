@@ -70,10 +70,12 @@ def test_onkia_importable() -> None:
     try:
         from onkia.dnr_client import MnDnrLakeTopographyService
         from onkia.water_temp import WATER_TEMP_PREFERENCES
+        from onkia.weather import get_weather_for_window, WeatherResult
     except ModuleNotFoundError as exc:
         pytest.skip(f"Missing runtime dep: {exc.name}")
     assert callable(MnDnrLakeTopographyService)
     assert len(WATER_TEMP_PREFERENCES) > 0
+    assert callable(get_weather_for_window)
 
 
 def test_onkia_models_importable() -> None:
