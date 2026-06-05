@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 import xml.etree.ElementTree as ET
-from datetime import date, time
+from datetime import date, time, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -29,6 +29,7 @@ from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
 from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
 from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
+from onkia.weather import get_weather_for_window, wind_direction_label  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -85,7 +86,6 @@ _MONTHLY_WATER_TEMP = {
     9: 63, 10: 51, 11: 39, 12: 34,
 }
 
-# Historical monthly cloud cover (%) for central MN (NOAA climate normals)
 _MONTHLY_CLOUD_COVER = {
     1: 65, 2: 60, 3: 55, 4: 50,
     5: 48, 6: 40, 7: 32, 8: 35,
@@ -285,6 +285,13 @@ def _load_survey(lake_id: str) -> Optional[dict]:
         return survey.model_dump() if survey else None
     except Exception:
         return None
+
+
+@st.cache_data(ttl=1800, show_spinner="Fetching weather from Open-Meteo…")
+def _get_weather_cached(lat: float, lon: float, query_date_str: str, start_hour: int = 17, end_hour: int = 21):
+    from onkia.weather import get_weather_for_window as _gw
+    qd = date.fromisoformat(query_date_str)
+    return _gw(lat, lon, qd, start_hour, end_hour)
 
 
 @st.cache_data(show_spinner="Loading stocking data from DNR…")
@@ -497,7 +504,7 @@ with col_date:
         "Date",
         value=date.today(),
         min_value=date(2000, 1, 1),
-        max_value=date.today(),
+        max_value=date.today() + timedelta(days=6),
     )
 with col_time:
     time_of_day = st.selectbox(
@@ -508,19 +515,58 @@ with col_time:
 
 st.divider()
 
-# --- Water Temperature ---
-st.subheader("🌡️ Water Temperature Estimate")
-water_temp = _estimate_water_temp(selected_date)
-cloud_cover = _estimate_cloud_cover(selected_date)
+# --- Weather Conditions ---
+st.subheader("🌤️ Evening Weather Conditions")
 
-col_temp, col_cloud, col_note = st.columns([1, 1, 2])
+lake_coords = WRIGHT_COUNTY_LAKES.get(lake_name)
+if lake_coords:
+    lat, lon = lake_coords[0], lake_coords[1]
+else:
+    lat, lon = 45.17, -94.05
+
+weather = _get_weather_cached(lat, lon, selected_date.isoformat())
+
+col_temp, col_pressure, col_wind, col_cloud = st.columns(4)
 with col_temp:
-    st.metric("Est. Surface Temp", f"{water_temp:.0f}°F")
+    temp_val = weather.air_temp_f
+    if temp_val is not None:
+        st.metric("Air Temp (5–9 PM)", f"{temp_val:.0f}°F")
+    else:
+        st.metric("Air Temp", "N/A")
+with col_pressure:
+    if weather.pressure_inhg is not None:
+        pi = weather.pressure_interpretation
+        trend_label = pi.label if pi else "—"
+        st.metric("Barometric Pressure", f"{weather.pressure_inhg:.2f} inHg", delta=trend_label)
+    else:
+        st.metric("Barometric Pressure", "N/A")
+with col_wind:
+    if weather.wind_speed_mph is not None and weather.wind_direction_deg is not None:
+        wdir = wind_direction_label(weather.wind_direction_deg)
+        st.metric("Wind", f"{weather.wind_speed_mph:.1f} mph {wdir}")
+    elif weather.wind_speed_mph is not None:
+        st.metric("Wind Speed", f"{weather.wind_speed_mph:.1f} mph")
+    else:
+        st.metric("Wind", "N/A")
 with col_cloud:
-    st.metric("Est. Cloud Cover", f"{cloud_cover:.0f}%")
-with col_note:
-    tod = _TIME_OF_DAY_ADVICE[time_of_day]
-    st.info(f"**{tod['label']}** — {tod['note']}")
+    if weather.cloud_cover_pct is not None:
+        st.metric("Cloud Cover", f"{weather.cloud_cover_pct:.0f}%")
+    else:
+        st.metric("Cloud Cover", "N/A")
+
+if weather.pressure_interpretation:
+    st.info(f"**Pressure Trend:** {weather.pressure_interpretation.label} — {weather.pressure_interpretation.fishing_note}")
+
+if weather.fallback_used:
+    st.caption("⚠️ Using seasonal averages — Open-Meteo API unavailable. Pressure and wind data not available from fallback.")
+else:
+    st.caption(f"Data source: Open-Meteo ({weather.source})")
+
+water_temp = weather.air_temp_f if weather.air_temp_f is not None else _estimate_water_temp(selected_date)
+cloud_cover = weather.cloud_cover_pct if weather.cloud_cover_pct is not None else _estimate_cloud_cover(selected_date)
+
+tod = _TIME_OF_DAY_ADVICE[time_of_day]
+st.info(f"**{tod['label']}** — {tod['note']}")
 
 # Historical charts
 with st.expander("📈 Seasonal Temperature & Cloud Cover Charts"):
