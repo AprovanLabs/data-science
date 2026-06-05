@@ -71,7 +71,7 @@ def _load_data(mo, lake_select, reload_btn):
         ),
     )
 
-    from onkia import MnDnrLakeTopographyService
+    from onkia.dnr_client import MnDnrLakeTopographyService
 
     _svc = MnDnrLakeTopographyService()
     _name = lake_select.value

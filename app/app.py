@@ -26,7 +26,8 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
-from onkia import MnDnrLakeTopographyService, WATER_TEMP_PREFERENCES  # noqa: E402
+from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
+from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
 
 # ---------------------------------------------------------------------------
