@@ -89,7 +89,7 @@ def _load_data(mo, lake_select, reload_btn):
         ),
     )
 
-    from onkia import MnDnrLakeTopographyService
+    from onkia.dnr_client import MnDnrLakeTopographyService
 
     _svc = MnDnrLakeTopographyService()
     raw_species = _svc.get_species(lake_select.value, county_id=86, state_id=1)

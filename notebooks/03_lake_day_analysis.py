@@ -138,7 +138,8 @@ def _load_data(mo, lake_select, date_input, water_temp_input, reload_btn):
         ),
     )
 
-    from onkia import MnDnrLakeTopographyService, WATER_TEMP_PREFERENCES
+    from onkia.dnr_client import MnDnrLakeTopographyService
+    from onkia.water_temp import WATER_TEMP_PREFERENCES
     import xml.etree.ElementTree as ET
 
     _svc = MnDnrLakeTopographyService()

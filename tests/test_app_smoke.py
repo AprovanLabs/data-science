@@ -68,7 +68,8 @@ def test_dnr_map_importable() -> None:
 def test_onkia_importable() -> None:
     sys.path.insert(0, str(REPO_ROOT / "src"))
     try:
-        from onkia import MnDnrLakeTopographyService, WATER_TEMP_PREFERENCES
+        from onkia.dnr_client import MnDnrLakeTopographyService
+        from onkia.water_temp import WATER_TEMP_PREFERENCES
     except ModuleNotFoundError as exc:
         pytest.skip(f"Missing runtime dep: {exc.name}")
     assert callable(MnDnrLakeTopographyService)
