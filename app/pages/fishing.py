@@ -850,7 +850,20 @@ elif _usgs_lakes and lake_id not in _usgs_lakes:
         st.info("This lake is not in the USGS GLM dataset. Depth-resolved temperature is unavailable.")
 elif not _usgs_lakes:
     with st.expander("USGS Depth-Temperature Profile"):
-        st.caption("No USGS GLM data loaded. Run `python scripts/download_usgs_glm.py --sample` to generate test data.")
+        st.info(
+            "Depth-temperature profile data is not yet available. "
+            "Click below to fetch it from the USGS ScienceBase dataset "
+            "(first load may take several minutes)."
+        )
+        if st.button("Load USGS Temperature Data", key="btn_load_usgs_glm"):
+            with st.spinner("Downloading from USGS ScienceBase…"):
+                from onkia.usgs_glm import fetch_from_sciencebase
+                _usgs_ok, _usgs_msg = fetch_from_sciencebase()
+            if _usgs_ok:
+                st.success(_usgs_msg)
+                st.rerun()
+            else:
+                st.error(_usgs_msg)
 
 # --- Bathymetry Contours ---
 st.subheader("Bathymetry & Depth Contours")
@@ -894,7 +907,7 @@ else:
     if _bathy_lakes:
         st.info(f"No bathymetry data for **{lake_name}**. Available: {', '.join(_bathy_lakes)}")
     else:
-        st.caption("No bathymetry contour data loaded. Run `python scripts/prepare_bathymetry.py --sample` to generate test data.")
+        st.info("Depth contour data is not available. No bathymetry has been loaded for Wright County lakes.")
 
 if species_zones:
     st.markdown("**Species Depth Zone Summary** (depth contour overlay):")
