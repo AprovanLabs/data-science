@@ -221,45 +221,6 @@ with st.sidebar:
         st.success("Cache cleared -- data will reload on next action.")
 
     st.divider()
-
-    st.markdown("**Select a Lake**")
-    lake_names = sorted(WRIGHT_COUNTY_LAKES.keys())
-    cols = st.columns(3)
-    for i, name in enumerate(lake_names):
-        with cols[i % 3]:
-            is_sel = name == st.session_state["selected_lake_name"]
-            label = f"{'>> ' if is_sel else ''}{name}"
-            if st.button(label, key=f"pick_{name}", use_container_width=True):
-                st.session_state["selected_lake_name"] = name
-                st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
-
-    st.divider()
-
-    col_search, col_btn = st.columns([3, 1])
-    with col_search:
-        search_query = st.text_input(
-            "Search DNR by name",
-            placeholder="e.g. Clearwater",
-            label_visibility="collapsed",
-            key="sidebar_search",
-        )
-    with col_btn:
-        do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
-
-    if do_search and search_query:
-        result = _search_lake_cached(search_query.strip())
-        if result:
-            st.session_state["dnr_search_results"] = [result]
-            st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
-        else:
-            st.session_state["dnr_search_results"] = []
-            st.warning(f"No lake named '{search_query}' found in Wright County.")
-
-    st.divider()
-    if st.session_state["selected_lake_name"]:
-        st.info(f"Selected: **{st.session_state['selected_lake_name']}**")
-
-    st.divider()
     st.markdown("**Map Overlays**")
     show_bathymetry = st.checkbox("Show Depth Contours", value=False, key="chk_bathymetry")
     show_species_zones = st.checkbox("Show Species Zones", value=False, key="chk_species_zones")
@@ -620,6 +581,39 @@ def _build_depth_temp_chart(
 
 st.title("Wright County Fishing Intelligence")
 
+st.markdown("**Select a Lake**")
+lake_names = sorted(WRIGHT_COUNTY_LAKES.keys())
+cols = st.columns(3)
+for i, name in enumerate(lake_names):
+    with cols[i % 3]:
+        is_sel = name == st.session_state["selected_lake_name"]
+        label = f"{'>> ' if is_sel else ''}{name}"
+        if st.button(label, key=f"pick_{name}", use_container_width=True):
+            st.session_state["selected_lake_name"] = name
+            st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
+
+col_search, col_btn = st.columns([3, 1])
+with col_search:
+    search_query = st.text_input(
+        "Search DNR by name",
+        placeholder="e.g. Clearwater",
+        label_visibility="collapsed",
+        key="lake_search",
+    )
+with col_btn:
+    do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
+
+if do_search and search_query:
+    result = _search_lake_cached(search_query.strip())
+    if result:
+        st.session_state["dnr_search_results"] = [result]
+        st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
+    else:
+        st.session_state["dnr_search_results"] = []
+        st.warning(f"No lake named '{search_query}' found in Wright County.")
+
+st.divider()
+
 st.subheader("Lake Map")
 
 lake_name_for_zones = st.session_state["selected_lake_name"]
@@ -676,7 +670,7 @@ lake_name = st.session_state["selected_lake_name"]
 lake_id = st.session_state["selected_lake_id"]
 
 if not lake_name or not lake_id:
-    st.info("Select a lake from the sidebar or click a marker on the map.")
+    st.info("Select a lake above or click a marker on the map.")
     st.stop()
 
 st.success(f"Selected: **{lake_name}** (DOW: {lake_id})")
