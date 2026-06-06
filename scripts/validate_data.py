@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -268,11 +267,11 @@ def main():
     print()
     if all_passed:
         print("All validations passed.")
-        sys.exit(0)
+        return 0
     else:
         print("Some validations failed.")
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
