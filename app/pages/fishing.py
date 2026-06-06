@@ -221,50 +221,6 @@ with st.sidebar:
         st.success("Cache cleared -- data will reload on next action.")
 
     st.divider()
-
-    st.markdown("**Select a Lake**")
-    lake_names = sorted(WRIGHT_COUNTY_LAKES.keys())
-    cols = st.columns(3)
-    for i, name in enumerate(lake_names):
-        with cols[i % 3]:
-            is_sel = name == st.session_state["selected_lake_name"]
-            label = f"{'>> ' if is_sel else ''}{name}"
-            if st.button(label, key=f"pick_{name}", use_container_width=True):
-                st.session_state["selected_lake_name"] = name
-                st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
-
-    st.divider()
-
-    col_search, col_btn = st.columns([3, 1])
-    with col_search:
-        search_query = st.text_input(
-            "Search DNR by name",
-            placeholder="e.g. Clearwater",
-            label_visibility="collapsed",
-            key="sidebar_search",
-        )
-    with col_btn:
-        do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
-
-    if do_search and search_query:
-        try:
-            result = _search_lake_cached(search_query.strip())
-        except DnrApiUnavailableError:
-            st.session_state["dnr_search_results"] = []
-            st.error("DNR API is unavailable. Please try again later.")
-        else:
-            if result:
-                st.session_state["dnr_search_results"] = [result]
-                st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
-            else:
-                st.session_state["dnr_search_results"] = []
-                st.warning(f"No lake named '{search_query}' found in Wright County.")
-
-    st.divider()
-    if st.session_state["selected_lake_name"]:
-        st.info(f"Selected: **{st.session_state['selected_lake_name']}**")
-
-    st.divider()
     st.markdown("**Map Overlays**")
     show_bathymetry = st.checkbox("Show Depth Contours", value=False, key="chk_bathymetry")
     show_species_zones = st.checkbox("Show Species Zones", value=False, key="chk_species_zones")
@@ -411,10 +367,19 @@ def _generate_plan_cached(
     import json as _json
     from onkia.plan_generator import generate_evening_plan as _gp
     from onkia.weather import WeatherResult as _WR
-    weather = _WR(**_json.loads(_weather_json))
+    try:
+        weather = _WR(**_json.loads(_weather_json))
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid weather JSON: {_e}") from _e
     from onkia.models import WaterTempPreference as _WTP
-    pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
-    survey = _json.loads(_survey_json) if _survey_json else None
+    try:
+        pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid preferences JSON: {_e}") from _e
+    try:
+        survey = _json.loads(_survey_json) if _survey_json else None
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid survey JSON: {_e}") from _e
     return _gp(weather, water_temp_f, pref_objs, survey, wind_dir_deg, start_hour, end_hour)
 
 
@@ -622,6 +587,44 @@ def _build_depth_temp_chart(
 
 st.title("Wright County Fishing Intelligence")
 
+st.markdown("**Select a Lake**")
+lake_names = sorted(WRIGHT_COUNTY_LAKES.keys())
+cols = st.columns(3)
+for i, name in enumerate(lake_names):
+    with cols[i % 3]:
+        is_sel = name == st.session_state["selected_lake_name"]
+        label = f"{'>> ' if is_sel else ''}{name}"
+        if st.button(label, key=f"pick_{name}", use_container_width=True):
+            st.session_state["selected_lake_name"] = name
+            st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
+
+col_search, col_btn = st.columns([3, 1])
+with col_search:
+    search_query = st.text_input(
+        "Search DNR by name",
+        placeholder="e.g. Clearwater",
+        label_visibility="collapsed",
+        key="lake_search",
+    )
+with col_btn:
+    do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
+
+if do_search and search_query:
+    try:
+        result = _search_lake_cached(search_query.strip())
+    except DnrApiUnavailableError:
+        st.session_state["dnr_search_results"] = []
+        st.error("DNR API is unavailable. Please try again later.")
+    else:
+        if result:
+            st.session_state["dnr_search_results"] = [result]
+            st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
+        else:
+            st.session_state["dnr_search_results"] = []
+            st.warning(f"No lake named '{search_query}' found in Wright County.")
+
+st.divider()
+
 st.subheader("Lake Map")
 
 lake_name_for_zones = st.session_state["selected_lake_name"]
@@ -678,7 +681,7 @@ lake_name = st.session_state["selected_lake_name"]
 lake_id = st.session_state["selected_lake_id"]
 
 if not lake_name or not lake_id:
-    st.info("Select a lake from the sidebar or click a marker on the map.")
+    st.info("Select a lake above or click a marker on the map.")
     st.stop()
 
 st.success(f"Selected: **{lake_name}** (DOW: {lake_id})")
