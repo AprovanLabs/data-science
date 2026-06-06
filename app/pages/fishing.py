@@ -49,6 +49,7 @@ from onkia.satellite_lst import (  # noqa: F401
     lake_radius_m,
 )
 from onkia.weather import get_weather_for_window, wind_direction_label  # noqa: F401
+from onkia.plan_generator import generate_evening_plan  # noqa: F401
 
 TARGET_SPECIES = {
     "Largemouth Bass": "LMB",
@@ -393,6 +394,26 @@ def _compute_trend_analysis(lake_id: str, lake_name: str) -> Optional[dict]:
         }
     except Exception:
         return None
+
+
+@st.cache_data(show_spinner="Generating evening plan...")
+def _generate_plan_cached(
+    _weather_json: str,
+    water_temp_f: float,
+    _prefs_json: str,
+    _survey_json: str,
+    wind_dir_deg: Optional[float],
+    start_hour: int,
+    end_hour: int,
+):
+    import json as _json
+    from onkia.plan_generator import generate_evening_plan as _gp
+    from onkia.weather import WeatherResult as _WR
+    weather = _WR(**_json.loads(_weather_json))
+    from onkia.models import WaterTempPreference as _WTP
+    pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
+    survey = _json.loads(_survey_json) if _survey_json else None
+    return _gp(weather, water_temp_f, pref_objs, survey, wind_dir_deg, start_hour, end_hour)
 
 
 @st.cache_data(show_spinner="Loading stocking data from DNR...")
@@ -1031,6 +1052,71 @@ for pref in target_prefs:
             st.markdown(f"**{time_of_day.title()} tip:** Low-light conditions favor active feeding -- use noisy/scented presentations.")
         elif time_of_day == "midday":
             st.markdown("**Midday tip:** Fish deeper and slower. Try vertical jigging or live bait under a slip bobber.")
+
+st.divider()
+
+# --- Evening Fishing Plan ---
+st.subheader("Evening Fishing Plan (5:30--9:00 PM)")
+
+col_start, col_end = st.columns(2)
+with col_start:
+    plan_start_hour = st.number_input("Start hour (24h)", min_value=0, max_value=23, value=17, key="plan_start")
+with col_end:
+    plan_end_hour = st.number_input("End hour (24h)", min_value=0, max_value=23, value=21, key="plan_end")
+
+import json as _json
+
+survey_records_for_plan = _load_survey_for_lake(lake_id, lake_name)
+_weather_json = _json.dumps({
+    "air_temp_f": weather.air_temp_f,
+    "pressure_hpa": weather.pressure_hpa,
+    "pressure_inhg": weather.pressure_inhg,
+    "wind_speed_mph": weather.wind_speed_mph,
+    "wind_direction_deg": weather.wind_direction_deg,
+    "cloud_cover_pct": weather.cloud_cover_pct,
+    "pressure_trend": weather.pressure_trend.value if weather.pressure_trend else None,
+    "source": weather.source,
+    "fallback_used": weather.fallback_used,
+})
+_prefs_json = _json.dumps([
+    {"species": p.species, "lower_avoidance": p.lower_avoidance, "optimum": p.optimum, "upper_avoidance": p.upper_avoidance}
+    for p in target_prefs
+])
+_survey_json = _json.dumps(survey_records_for_plan) if survey_records_for_plan else ""
+
+plan = _generate_plan_cached(
+    _weather_json, water_temp, _prefs_json, _survey_json,
+    weather.wind_direction_deg, plan_start_hour, plan_end_hour,
+)
+
+if plan.blocks:
+    st.markdown(f"**Conditions:** {plan.conditions_summary}")
+    st.markdown("---")
+
+    for i, block in enumerate(plan.blocks):
+        col_time_block, col_detail = st.columns([1, 3])
+        with col_time_block:
+            st.markdown(f"#### {block.time_start} -- {block.time_end}")
+            st.markdown(f"**{block.species}**")
+        with col_detail:
+            st.markdown(f"**Location:** {block.location}")
+            st.markdown(f"**Technique:** {block.technique}")
+            if block.lures:
+                st.markdown(f"**Lures:** {', '.join(block.lures)}")
+            if block.depth:
+                st.markdown(f"**Depth:** {block.depth}")
+            with st.expander("Supporting evidence"):
+                for ev in block.evidence:
+                    st.markdown(f"- {ev}")
+
+        if i < len(plan.blocks) - 1:
+            st.markdown("---")
+
+    with st.expander("Data sources"):
+        for ds in plan.data_sources:
+            st.markdown(f"- {ds}")
+else:
+    st.info("No plan blocks generated -- adjust time window or check species preferences.")
 
 st.divider()
 
