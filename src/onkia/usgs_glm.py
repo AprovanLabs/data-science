@@ -13,6 +13,7 @@ get_temperature_profile  - depth vs temperature for a given date
 get_thermocline_depth    - thermocline depth in metres
 get_climatological_profile - day-of-year average profile
 get_species_depth_zones  - map species preferences to depth ranges
+fetch_from_sciencebase   - on-demand download from USGS ScienceBase
 """
 from __future__ import annotations
 
@@ -237,6 +238,200 @@ def get_species_depth_zones(
         })
 
     return zones
+
+
+_SCIENCEBASE_ITEM = "6206d3c2d34ec05caca53071"
+_SCIENCEBASE_API = f"https://www.sciencebase.gov/catalog/item/{_SCIENCEBASE_ITEM}?format=json"
+
+# DOW ID → (lat, lon) for Wright County lakes used for crosswalk matching
+_WRIGHT_COUNTY_DOW_IDS = {
+    "86025200", "86099900", "86099700", "86099600", "86056300",
+    "86045400", "86063600", "86003800", "86012000", "86009200",
+    "86111700", "86040700", "86020400", "86120900", "86047300",
+}
+
+
+def fetch_from_sciencebase(
+    dow_ids: Optional[List[str]] = None,
+    output_dir: Optional[Path] = None,
+) -> Tuple[bool, str]:
+    """Download and cache USGS GLM data for the given DOW IDs from ScienceBase.
+
+    Fetches the lake crosswalk CSV and the GLM NetCDF zip from ScienceBase
+    item ``6206d3c2d34ec05caca53071``, extracts temperature profiles for the
+    requested lakes, and saves them as per-lake parquet files so that
+    :func:`get_temperature_profile` and friends can serve them immediately.
+
+    Parameters
+    ----------
+    dow_ids:
+        DOW IDs to fetch.  Defaults to all Wright County lakes.
+    output_dir:
+        Directory to write parquet files.  Defaults to ``_DATA_DIR``.
+
+    Returns
+    -------
+    (success, message)
+        *success* is ``True`` if at least one lake's data was written.
+        *message* describes the outcome or error.
+    """
+    try:
+        import io
+        import os
+        import tempfile
+        import zipfile
+
+        import requests
+    except ImportError as exc:
+        return False, f"Missing dependency: {exc}. Install 'requests' to enable on-demand loading."
+
+    target_dow_ids = set(dow_ids) if dow_ids else _WRIGHT_COUNTY_DOW_IDS
+    out_dir = output_dir or _DATA_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- already cached? ---
+    already = {p.stem for p in out_dir.glob("*.parquet")}
+    missing = target_dow_ids - already
+    if not missing:
+        return True, "All requested lakes are already cached."
+
+    # --- fetch ScienceBase item manifest ---
+    logger.info("Fetching ScienceBase item manifest from %s", _SCIENCEBASE_API)
+    try:
+        resp = requests.get(_SCIENCEBASE_API, timeout=30)
+        resp.raise_for_status()
+        item = resp.json()
+    except Exception as exc:
+        return False, f"Could not reach ScienceBase ({exc}). Check network connectivity."
+
+    files = item.get("files", [])
+
+    # --- download crosswalk CSV ---
+    crosswalk_path = out_dir / "crosswalk.csv"
+    if not crosswalk_path.exists():
+        cw_url = next(
+            (f.get("downloadUrl", f.get("uri", "")) for f in files
+             if "crosswalk" in f.get("name", "").lower() and f.get("name", "").endswith(".csv")),
+            None,
+        )
+        if cw_url:
+            try:
+                r = requests.get(cw_url, timeout=60)
+                r.raise_for_status()
+                crosswalk_path.write_bytes(r.content)
+                logger.info("Saved crosswalk → %s", crosswalk_path)
+            except Exception as exc:
+                logger.warning("Could not download crosswalk: %s", exc)
+
+    # --- resolve DOW → site_id via crosswalk ---
+    site_id_map: Dict[str, str] = {}
+    if crosswalk_path.exists():
+        try:
+            cw_df = pd.read_csv(crosswalk_path)
+            mndow_col = next((c for c in cw_df.columns if "mndow" in c.lower() or "dow" in c.lower()), None)
+            site_col = next((c for c in cw_df.columns if "site_id" in c.lower() or "siteid" in c.lower()), None)
+            if mndow_col and site_col:
+                cw_df[mndow_col] = cw_df[mndow_col].astype(str).str.strip()
+                for dow_id in missing:
+                    row = cw_df[cw_df[mndow_col].str.contains(dow_id, na=False, regex=False)]
+                    if not row.empty:
+                        site_id_map[dow_id] = str(row.iloc[0][site_col])
+        except Exception as exc:
+            logger.warning("Could not parse crosswalk: %s", exc)
+
+    if not site_id_map:
+        return False, (
+            "Could not map any DOW IDs to USGS site IDs via the ScienceBase crosswalk. "
+            "The dataset may not cover these lakes."
+        )
+
+    # --- find NetCDF zip URL ---
+    zip_url = next(
+        (f.get("downloadUrl", f.get("uri", "")) for f in files
+         if "lake_temp_preds_GLM_NLDAS" in f.get("name", "") and f.get("name", "").endswith(".zip")),
+        None,
+    )
+    if not zip_url:
+        # fall back to EA-LSTM
+        zip_url = next(
+            (f.get("downloadUrl", f.get("uri", "")) for f in files
+             if "lake_temp_preds_EALSTM" in f.get("name", "") and f.get("name", "").endswith(".zip")),
+            None,
+        )
+    if not zip_url:
+        return False, "Temperature NetCDF zip not found in ScienceBase item. The dataset structure may have changed."
+
+    logger.info("Downloading NetCDF zip from ScienceBase (this may take several minutes)…")
+    try:
+        with requests.get(zip_url, timeout=600, stream=True) as r:
+            r.raise_for_status()
+            tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+            for chunk in r.iter_content(chunk_size=65536):
+                tmp.write(chunk)
+            tmp.close()
+            zip_path = tmp.name
+    except Exception as exc:
+        return False, f"Failed to download NetCDF zip: {exc}"
+
+    target_site_ids = set(site_id_map.values())
+    extracted = 0
+    try:
+        try:
+            import xarray as xr
+        except ImportError:
+            return False, "xarray is required for reading NetCDF data. Install it with: pip install xarray netcdf4"
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            nc_files = [n for n in zf.namelist() if n.endswith(".nc")]
+            logger.info("NetCDF zip contains %d .nc files", len(nc_files))
+            for nc_name in nc_files:
+                with zf.open(nc_name) as f:
+                    try:
+                        ds = xr.open_dataset(io.BytesIO(f.read()))
+                    except Exception:
+                        continue
+                    site_coord = ds.coords.get("site_id") or ds.dims.get("site_id")
+                    if site_coord is None:
+                        ds.close()
+                        continue
+                    ids_in_file = {str(v) for v in site_coord.values}
+                    matched = ids_in_file & target_site_ids
+                    if not matched:
+                        ds.close()
+                        continue
+                    for sid in matched:
+                        dow_id = next(k for k, v in site_id_map.items() if v == sid)
+                        try:
+                            sub = ds.sel(site_id=sid)
+                            df = sub.to_dataframe().reset_index()
+                            rename = {}
+                            if "depth" in df.columns:
+                                rename["depth"] = "depth_m"
+                            if "temp" in df.columns:
+                                rename["temp"] = "temp_c"
+                            if "time" in df.columns:
+                                rename["time"] = "date"
+                            df = df.rename(columns=rename)
+                            df = df[["date", "depth_m", "temp_c"]].dropna(subset=["temp_c"])
+                            out_path = out_dir / f"{dow_id}.parquet"
+                            df.to_parquet(out_path, index=False)
+                            logger.info("Wrote %d rows → %s", len(df), out_path)
+                            extracted += 1
+                        except Exception as exc:
+                            logger.warning("Failed to extract site_id=%s: %s", sid, exc)
+                    ds.close()
+    finally:
+        try:
+            os.unlink(zip_path)
+        except OSError:
+            pass
+
+    if extracted > 0:
+        return True, f"Successfully loaded temperature data for {extracted} lake(s)."
+    return False, (
+        "Downloaded the dataset but could not extract data for the requested lakes. "
+        "They may not be covered by the USGS GLM model."
+    )
 
 
 def generate_sample_data(
