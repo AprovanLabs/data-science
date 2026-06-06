@@ -57,9 +57,9 @@ jobs:
         run: |
           python -c "
           import importlib.util, sys
-          sys.path.insert(0, 'src')
           import onkia
-          from onkia import MnDnrLakeTopographyService, WATER_TEMP_PREFERENCES
+          from onkia.dnr_client import MnDnrLakeTopographyService
+          from onkia.water_temp import WATER_TEMP_PREFERENCES
           from onkia.models import Lake, SurveyOverview, WaterTempPreference
           import marimo
           import folium
@@ -71,6 +71,8 @@ jobs:
   streamlit-smoke:
     name: Streamlit Smoke Test
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

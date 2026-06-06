@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from onkia.models import WaterTempPreference
+from onkia.models import DepthPreference, WaterTempPreference
 
 _RAW_DATA = [
     ("Atlantic Salmon", 45, "50-62", None),
@@ -48,6 +48,34 @@ def _parse_preferences() -> List[WaterTempPreference]:
         )
         for species, lower, optimum, upper in _RAW_DATA
     ]
+
+
+_DEPTH_RAW_DATA = [
+    ("Largemouth Bass", "12-20", "4-10", "15-25"),
+    ("Northern Pike", "10-20", "6-12", "12-20"),
+    ("Walleye", "20-35", "8-18", "20-30"),
+    ("Black Crappie", "15-25", "8-15", "4-12"),
+    ("Sunfish", "6-12", "2-6", "4-8"),
+    ("Smallmouth Bass", "12-20", "6-15", "15-25"),
+    ("Yellow Perch", "15-25", "8-18", "20-30"),
+    ("Lake Trout", "40-60", "30-50", "40-55"),
+    ("Muskellunge", "10-20", "6-15", "12-22"),
+]
+
+
+def _parse_depth_preferences() -> List[DepthPreference]:
+    return [
+        DepthPreference(
+            species=species,
+            cold_range=cold,
+            optimal_range=optimal,
+            warm_range=warm,
+        )
+        for species, cold, optimal, warm in _DEPTH_RAW_DATA
+    ]
+
+
+DEPTH_PREFERENCES: List[DepthPreference] = _parse_depth_preferences()
 
 
 WATER_TEMP_PREFERENCES: List[WaterTempPreference] = _parse_preferences()

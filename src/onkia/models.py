@@ -164,3 +164,17 @@ class WaterTempPreference(OnkiaBaseModel):
     lower_avoidance: Optional[float] = None
     optimum: str
     upper_avoidance: Optional[float] = None
+
+
+class DepthPreference(OnkiaBaseModel):
+    species: str
+    cold_range: str
+    optimal_range: str
+    warm_range: str
+
+
+class BathymetryContour(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    depth_ft: float
+    geometry: Optional[Dict] = None
