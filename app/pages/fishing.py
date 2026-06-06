@@ -370,10 +370,19 @@ def _generate_plan_cached(
     import json as _json
     from onkia.plan_generator import generate_evening_plan as _gp
     from onkia.weather import WeatherResult as _WR
-    weather = _WR(**_json.loads(_weather_json))
+    try:
+        weather = _WR(**_json.loads(_weather_json))
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid weather JSON: {_e}") from _e
     from onkia.models import WaterTempPreference as _WTP
-    pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
-    survey = _json.loads(_survey_json) if _survey_json else None
+    try:
+        pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid preferences JSON: {_e}") from _e
+    try:
+        survey = _json.loads(_survey_json) if _survey_json else None
+    except (TypeError, ValueError) as _e:
+        raise ValueError(f"Invalid survey JSON: {_e}") from _e
     return _gp(weather, water_temp_f, pref_objs, survey, wind_dir_deg, start_hour, end_hour)
 
 
