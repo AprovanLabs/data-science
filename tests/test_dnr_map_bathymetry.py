@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict
 
@@ -10,6 +11,7 @@ import pytest
 try:
     import folium
     from components.dnr_map import (
+        _depth_to_color,
         add_depth_contours,
         add_species_zone_overlay,
         build_lake_map,
@@ -69,6 +71,18 @@ class TestAddDepthContours:
         m = folium.Map(location=[45.3, -94.1], zoom_start=10)
         fg = add_depth_contours(m, "Nonexistent Lake", bathymetry_dir=tmp_path)
         assert fg is None
+
+    def test_style_function_reads_depth_from_properties(self, sample_contour_geojson):
+        """style_function must extract depth_ft from feature properties, producing distinct
+        colors for different depths — not a static style that ignores feature properties."""
+        m = folium.Map(location=[45.3, -94.1], zoom_start=10)
+        add_depth_contours(m, "Clearwater", bathymetry_dir=sample_contour_geojson)
+        html = m._repr_html_()
+        color_10ft = _depth_to_color(10.0)
+        color_25ft = _depth_to_color(25.0)
+        assert color_10ft != color_25ft, "test requires two distinct depth colors"
+        assert color_10ft in html, f"expected color for 10 ft ({color_10ft}) not found in rendered HTML"
+        assert color_25ft in html, f"expected color for 25 ft ({color_25ft}) not found in rendered HTML"
 
 
 class TestAddSpeciesZoneOverlay:
