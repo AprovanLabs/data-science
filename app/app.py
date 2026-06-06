@@ -4,6 +4,10 @@ Multi-page hub using st.navigation (requires streamlit>=1.36).
 Run with:
 
     streamlit run app/app.py
+
+The fishing intelligence page is at app/pages/fishing.py.
+Shared constants, utilities, and cached loaders live in
+app/components/fishing_data.py.
 """
 from __future__ import annotations
 
