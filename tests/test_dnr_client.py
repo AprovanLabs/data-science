@@ -5,8 +5,9 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from onkia.dnr_client import MnDnrLakeTopographyService
+from onkia.dnr_client import DnrApiUnavailableError, MnDnrLakeTopographyService
 from onkia.models import (
     BathymetryContour,
     DepthPreference,
@@ -180,6 +181,26 @@ class TestGetLake:
         lake = service.get_lake("Clearwater")
         assert len(lake.special_fishing_regs) == 1
         assert lake.special_fishing_regs[0].regs[0].species == ["Crappie"]
+
+    @patch("onkia.dnr_client.requests.get")
+    def test_raises_on_connection_error(self, mock_get, service):
+        mock_get.side_effect = requests.exceptions.ConnectionError("Network unreachable")
+        with pytest.raises(DnrApiUnavailableError):
+            service.get_lake("Clearwater")
+
+    @patch("onkia.dnr_client.requests.get")
+    def test_raises_on_timeout(self, mock_get, service):
+        mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
+        with pytest.raises(DnrApiUnavailableError):
+            service.get_lake("Clearwater")
+
+    @patch("onkia.dnr_client.requests.get")
+    def test_raises_on_json_decode_error(self, mock_get, service):
+        mock_response = MagicMock()
+        mock_response.json.side_effect = requests.exceptions.JSONDecodeError("", "", 0)
+        mock_get.return_value = mock_response
+        with pytest.raises(DnrApiUnavailableError):
+            service.get_lake("Clearwater")
 
 
 class TestGetSurvey:

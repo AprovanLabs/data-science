@@ -28,7 +28,7 @@ from onkia.bathymetry import (  # noqa: F401
     load_depth_profile,
     species_depth_zone,
 )
-from onkia.dnr_client import MnDnrLakeTopographyService
+from onkia.dnr_client import DnrApiUnavailableError, MnDnrLakeTopographyService
 from onkia.water_temp import WATER_TEMP_PREFERENCES
 from onkia.models import WaterTempPreference
 from onkia.usgs_glm import (  # noqa: F401
@@ -240,12 +240,9 @@ with st.sidebar:
 
 @st.cache_data(show_spinner="Searching DNR database...")
 def _search_lake_cached(name: str) -> Optional[dict]:
-    try:
-        svc = MnDnrLakeTopographyService()
-        lake = svc.get_lake(name, county_id=86)
-        return lake.model_dump() if lake else None
-    except Exception:
-        return None
+    svc = MnDnrLakeTopographyService()
+    lake = svc.get_lake(name, county_id=86)
+    return lake.model_dump() if lake else None
 
 
 @st.cache_data(show_spinner="Loading survey data from DNR...")
@@ -613,13 +610,18 @@ with col_btn:
     do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
 
 if do_search and search_query:
-    result = _search_lake_cached(search_query.strip())
-    if result:
-        st.session_state["dnr_search_results"] = [result]
-        st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
-    else:
+    try:
+        result = _search_lake_cached(search_query.strip())
+    except DnrApiUnavailableError:
         st.session_state["dnr_search_results"] = []
-        st.warning(f"No lake named '{search_query}' found in Wright County.")
+        st.error("DNR API is unavailable. Please try again later.")
+    else:
+        if result:
+            st.session_state["dnr_search_results"] = [result]
+            st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
+        else:
+            st.session_state["dnr_search_results"] = []
+            st.warning(f"No lake named '{search_query}' found in Wright County.")
 
 st.divider()
 

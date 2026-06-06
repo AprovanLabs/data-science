@@ -10,6 +10,10 @@ import requests
 from onkia.models import Lake, SurveyOverview, WaterLevelReading
 
 
+class DnrApiUnavailableError(Exception):
+    """Raised when the DNR API cannot be reached or returns an unparseable response."""
+
+
 class LakeTopographyService(Protocol):
     def get_lake(self, name: str, county_id: int = 86) -> Optional[Lake]:
         ...
@@ -50,17 +54,17 @@ class MnDnrLakeTopographyService:
         self._logger.debug("Sending request to %s", endpoint)
         try:
             response = requests.get(endpoint, params=params, timeout=15)
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as exc:
             self._logger.warning("Connection error for %s", endpoint)
-            return None
-        except requests.exceptions.Timeout:
+            raise DnrApiUnavailableError(f"Connection error contacting DNR API: {endpoint}") from exc
+        except requests.exceptions.Timeout as exc:
             self._logger.warning("Timeout for %s", endpoint)
-            return None
+            raise DnrApiUnavailableError(f"Request timed out contacting DNR API: {endpoint}") from exc
         try:
             response_json = response.json()
-        except requests.exceptions.JSONDecodeError:
+        except requests.exceptions.JSONDecodeError as exc:
             self._logger.warning("JSON decode error for %s", endpoint)
-            return None
+            raise DnrApiUnavailableError(f"Invalid JSON response from DNR API: {endpoint}") from exc
         return response_json.get("results", response_json.get("result"))
 
     def _send_csv_request(
