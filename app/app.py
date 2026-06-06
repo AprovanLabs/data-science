@@ -7,8 +7,11 @@ Run with:
 """
 from __future__ import annotations
 
+import logging
 import sys
 import xml.etree.ElementTree as ET
+
+logger = logging.getLogger(__name__)
 from datetime import date, time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -675,7 +678,9 @@ if survey_data:
                     st.pyplot(fig2)
                     plt.close(fig2)
             except Exception:
-                pass
+                # Non-critical: water clarity chart is supplementary; failure
+                # must not prevent the rest of the survey section from rendering.
+                logger.warning("Failed to render water clarity chart", exc_info=True)
 
         # Lake morphology + depth profile
         with st.expander("🏞️ Lake Details & Depth Profile"):
