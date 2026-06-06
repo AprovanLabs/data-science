@@ -29,7 +29,7 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from components.dnr_map import WRIGHT_COUNTY_LAKES, build_lake_map  # noqa: E402
-from onkia.dnr_client import MnDnrLakeTopographyService  # noqa: E402
+from onkia.dnr_client import DnrApiUnavailableError, MnDnrLakeTopographyService  # noqa: E402
 from onkia.water_temp import WATER_TEMP_PREFERENCES  # noqa: E402
 from onkia.models import WaterTempPreference  # noqa: E402
 from onkia.weather import get_weather_for_window, wind_direction_label  # noqa: E402
@@ -255,13 +255,18 @@ with st.sidebar:
         do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
 
     if do_search and search_query:
-        result = _search_lake_cached(search_query.strip())
-        if result:
-            st.session_state["dnr_search_results"] = [result]
-            st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
-        else:
+        try:
+            result = _search_lake_cached(search_query.strip())
+        except DnrApiUnavailableError:
             st.session_state["dnr_search_results"] = []
-            st.warning(f"No lake named '{search_query}' found in Wright County.")
+            st.error("DNR API is unavailable. Please try again later.")
+        else:
+            if result:
+                st.session_state["dnr_search_results"] = [result]
+                st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
+            else:
+                st.session_state["dnr_search_results"] = []
+                st.warning(f"No lake named '{search_query}' found in Wright County.")
 
     st.divider()
     if st.session_state["selected_lake_name"]:
@@ -273,12 +278,9 @@ with st.sidebar:
 
 @st.cache_data(show_spinner="Searching DNR database…")
 def _search_lake_cached(name: str) -> Optional[dict]:
-    try:
-        svc = MnDnrLakeTopographyService()
-        lake = svc.get_lake(name, county_id=86)
-        return lake.model_dump() if lake else None
-    except Exception:
-        return None
+    svc = MnDnrLakeTopographyService()
+    lake = svc.get_lake(name, county_id=86)
+    return lake.model_dump() if lake else None
 
 
 @st.cache_data(show_spinner="Loading survey data from DNR…")
