@@ -691,33 +691,17 @@ else:
 
 st.divider()
 
-st.subheader("Species Suitability")
+st.subheader("Species Suitability & Technique Quick-Reference")
 
 target_prefs = [p for p in WATER_TEMP_PREFERENCES if p.species in TARGET_SPECIES]
-rows = []
-for pref in WATER_TEMP_PREFERENCES:
-    if pref.species not in TARGET_SPECIES:
-        continue
-    condition = _temp_condition(water_temp, pref)
-    condition_label = {"cold": "Cold", "optimal": "Optimal", "warm": "Warm"}.get(condition, "--")
-    rows.append({
-        "Species": pref.species,
-        "Condition": condition_label,
-        "Lower Avoidance (F)": pref.lower_avoidance or "--",
-        "Optimum (F)": pref.optimum,
-        "Upper Avoidance (F)": pref.upper_avoidance or "--",
-    })
 
-if rows:
-    df_species = pd.DataFrame(rows)
-    st.dataframe(df_species, use_container_width=True, hide_index=True)
-
-optimal_species = [r["Species"] for r in rows if "Optimal" in r["Condition"]]
-acceptable_species = [
-    r["Species"] for r in rows
-    if "Optimal" not in r["Condition"] and "Warm" not in r["Condition"]
-]
-
+# Best targets banner
+_cond_map_simple = {}
+for _p in WATER_TEMP_PREFERENCES:
+    if _p.species in TARGET_SPECIES:
+        _cond_map_simple[_p.species] = _temp_condition(water_temp, _p)
+optimal_species = [s for s, c in _cond_map_simple.items() if c == "optimal"]
+acceptable_species = [s for s, c in _cond_map_simple.items() if c == "cold"]
 if optimal_species:
     st.success(f"**Best targets today:** {', '.join(optimal_species)}")
 elif acceptable_species:
@@ -725,21 +709,30 @@ elif acceptable_species:
 else:
     st.warning("Water temperature outside preferred ranges for all target species -- fishing may be slow.")
 
-st.subheader("Fishing Technique Suggestions")
-
-for pref in target_prefs:
-    condition = _temp_condition(water_temp, pref)
-    tech = _TECHNIQUES.get(pref.species, {}).get(condition)
-    if not tech:
+_COND_BADGE = {"cold": "🔵 Cold", "optimal": "🟢 Optimal", "warm": "🔴 Warm"}
+_tech_rows = []
+for pref in WATER_TEMP_PREFERENCES:
+    if pref.species not in TARGET_SPECIES:
         continue
-    with st.expander(f"{pref.species} -- {condition.title()} conditions"):
-        st.markdown(f"**Lures / Baits:** {', '.join(tech['lures'])}")
-        st.markdown(f"**Target Depth:** {tech['depth']}")
-        st.markdown(f"**Best Time of Day:** {tech['time']}")
-        if time_of_day in ("dawn", "evening", "night"):
-            st.markdown(f"**{time_of_day.title()} tip:** Low-light conditions favor active feeding -- use noisy/scented presentations.")
-        elif time_of_day == "midday":
-            st.markdown("**Midday tip:** Fish deeper and slower. Try vertical jigging or live bait under a slip bobber.")
+    _cond = _temp_condition(water_temp, pref)
+    _tech = _TECHNIQUES.get(pref.species, {}).get(_cond)
+    if not _tech:
+        continue
+    _tech_rows.append({
+        "Species": pref.species,
+        "Condition": _COND_BADGE.get(_cond, _cond),
+        "Optimum (°F)": pref.optimum,
+        "Lures": " · ".join(_tech["lures"][:2]),
+        "Depth": _tech["depth"],
+        "Best Time": _tech["time"],
+    })
+
+if _tech_rows:
+    st.dataframe(pd.DataFrame(_tech_rows), use_container_width=True, hide_index=True)
+    if time_of_day in ("dawn", "evening", "night"):
+        st.caption("Low-light window: noisy/scented presentations excel; topwater and glow jigs active.")
+    elif time_of_day == "midday":
+        st.caption("Midday: fish deeper and slower — try vertical jigging or live bait under a slip bobber.")
 
 st.divider()
 
@@ -778,31 +771,38 @@ plan = _generate_plan_cached(
 )
 
 if plan.blocks:
-    st.markdown(f"**Conditions:** {plan.conditions_summary}")
-    st.markdown("---")
+    # Compact conditions bar — parse "Key: Value | Key: Value" into metrics
+    cond_parts = plan.conditions_summary.split(" | ")
+    cond_cols = st.columns(len(cond_parts)) if len(cond_parts) <= 6 else st.columns(6)
+    for _i, _part in enumerate(cond_parts[:6]):
+        with cond_cols[_i]:
+            if ":" in _part:
+                _lbl, _val = _part.split(":", 1)
+                st.metric(_lbl.strip(), _val.strip())
+            else:
+                st.caption(_part)
 
-    for i, block in enumerate(plan.blocks):
-        col_time_block, col_detail = st.columns([1, 3])
-        with col_time_block:
-            st.markdown(f"#### {block.time_start} -- {block.time_end}")
-            st.markdown(f"**{block.species}**")
-        with col_detail:
-            st.markdown(f"**Location:** {block.location}")
-            st.markdown(f"**Technique:** {block.technique}")
-            if block.lures:
-                st.markdown(f"**Lures:** {', '.join(block.lures)}")
-            if block.depth:
-                st.markdown(f"**Depth:** {block.depth}")
-            with st.expander("Supporting evidence"):
-                for ev in block.evidence:
-                    st.markdown(f"- {ev}")
+    # Compact plan table — one row per time block
+    _plan_rows = []
+    for _block in plan.blocks:
+        _plan_rows.append({
+            "Time": f"{_block.time_start} – {_block.time_end}",
+            "Species": _block.species,
+            "Depth": _block.depth or "--",
+            "Lures": " · ".join(_block.lures[:2]) if _block.lures else "--",
+            "Location": (_block.location[:70] + "…") if len(_block.location) > 70 else _block.location,
+            "Technique": (_block.technique[:90] + "…") if len(_block.technique) > 90 else _block.technique,
+        })
+    st.dataframe(pd.DataFrame(_plan_rows), use_container_width=True, hide_index=True)
 
-        if i < len(plan.blocks) - 1:
-            st.markdown("---")
-
-    with st.expander("Data sources"):
-        for ds in plan.data_sources:
-            st.markdown(f"- {ds}")
+    with st.expander("Evidence & data sources"):
+        for _block in plan.blocks:
+            st.markdown(f"**{_block.time_start} – {_block.time_end} — {_block.species}**")
+            for _ev in _block.evidence:
+                st.markdown(f"  - {_ev}")
+        st.markdown("**Data sources:**")
+        for _ds in plan.data_sources:
+            st.markdown(f"  - {_ds}")
 else:
     st.info("No plan blocks generated -- adjust time window or check species preferences.")
 
@@ -880,15 +880,17 @@ if survey_data:
             area = survey_data.get("area_acres", 0)
             max_d = survey_data.get("max_depth_feet", 0)
             mean_d = survey_data.get("mean_depth_feet", 0)
-            st.markdown(f"- **Area:** {area} acres")
-            st.markdown(f"- **Max Depth:** {max_d} ft")
-            st.markdown(f"- **Mean Depth:** {mean_d} ft")
-            st.markdown(f"- **Shore Length:** {survey_data.get('shore_length_miles', '--')} miles")
             avg_clarity = survey_data.get("average_water_clarity", "--")
-            st.markdown(f"- **Avg Water Clarity:** {avg_clarity} ft")
+            _ld_cols = st.columns(5)
+            _ld_cols[0].metric("Area (acres)", area or "--")
+            _ld_cols[1].metric("Max Depth (ft)", max_d or "--")
+            _ld_cols[2].metric("Mean Depth (ft)", mean_d or "--")
+            _ld_cols[3].metric("Shore (mi)", survey_data.get("shore_length_miles", "--"))
+            _ld_cols[4].metric("Avg Clarity (ft)", avg_clarity)
 
             if max_d and area:
-                fig_depth = _build_depth_profile(float(max_d), float(mean_d), float(area))
+                _md_safe = float(mean_d) if mean_d else float(max_d) / 2
+                fig_depth = _build_depth_profile(float(max_d), _md_safe, float(area))
                 st.pyplot(fig_depth)
                 plt.close(fig_depth)
     else:
@@ -904,40 +906,44 @@ st.caption("Population trends with traceable evidence from historical DNR survey
 _trend_data = _compute_trend_analysis(lake_id, lake_name)
 
 if _trend_data and _trend_data.get("species_trends"):
-    _STATUS_ICON = {
-        "INCREASING": "Increasing",
-        "DECREASING": "Declining",
-        "STABLE": "Stable",
-        "INSUFFICIENT_DATA": "Insufficient data",
+    _STATUS_ARROW = {
+        "INCREASING": "↑ Increasing",
+        "DECREASING": "↓ Declining",
+        "STABLE": "→ Stable",
+        "INSUFFICIENT_DATA": "? Insufficient",
+    }
+    _WT_ARROW = {
+        "INCREASING": "↑", "DECREASING": "↓", "STABLE": "→", "INSUFFICIENT_DATA": "?",
     }
 
-    for trend in _trend_data["species_trends"]:
-        label = _STATUS_ICON.get(trend["status"], trend["status"])
-        with st.expander(f"**{trend['species']}** -- {label}", expanded=True):
-            st.markdown(f"**Population trend:** {label}")
-            st.markdown(f"**Evidence:** {trend['evidence']}")
+    _trend_rows = []
+    for _t in _trend_data["species_trends"]:
+        _trend_rows.append({
+            "Species": _t["species"],
+            "Population": _STATUS_ARROW.get(_t["status"], _t["status"]),
+            "Latest CPUE": f"{_t['latest_cpue']:.2f}" if _t["latest_cpue"] is not None else "--",
+            "Avg Wt (lbs)": f"{_t['avg_weight_lbs']:.2f}" if _t["avg_weight_lbs"] is not None else "--",
+            "Wt Trend": _WT_ARROW.get(_t["avg_weight_trend"], "?"),
+            "Best Gear": _t["best_gear"] or "--",
+            "Survey Years": ", ".join(str(y) for y in _t["survey_years"]) if _t["survey_years"] else "--",
+        })
+    st.dataframe(pd.DataFrame(_trend_rows), use_container_width=True, hide_index=True)
 
-            col_cpue, col_weight, col_gear = st.columns(3)
-            with col_cpue:
-                if trend["latest_cpue"] is not None:
-                    st.metric("Latest CPUE", f"{trend['latest_cpue']:.2f}")
-            with col_weight:
-                if trend["avg_weight_lbs"] is not None:
-                    wt_label = _STATUS_ICON.get(trend["avg_weight_trend"], trend["avg_weight_trend"])
-                    st.metric("Avg Weight (lbs)", f"{trend['avg_weight_lbs']:.2f}", delta=f"{wt_label} weight")
-            with col_gear:
-                if trend["best_gear"]:
-                    st.metric("Best Gear", trend["best_gear"])
-
-            if trend["survey_years"]:
-                years_str = ", ".join(str(y) for y in trend["survey_years"])
-                st.caption(f"Survey years with data: {years_str}")
+    with st.expander("Evidence detail"):
+        for _t in _trend_data["species_trends"]:
+            st.markdown(f"**{_t['species']}:** {_t['evidence']}")
 
     if _trend_data.get("water_clarity"):
-        clarity = _trend_data["water_clarity"]
-        clarity_label = _STATUS_ICON.get(clarity["status"], clarity["status"])
-        st.markdown(f"**Water Clarity:** {clarity_label}")
-        st.markdown(f"_{clarity['evidence']}_")
+        _cl = _trend_data["water_clarity"]
+        _cl_label = _STATUS_ARROW.get(_cl["status"], _cl["status"])
+        _cl_cols = st.columns([1, 3])
+        with _cl_cols[0]:
+            if _cl.get("recent_clarity_ft") is not None:
+                st.metric("Water Clarity", f"{_cl['recent_clarity_ft']:.1f} ft", delta=_cl_label)
+            else:
+                st.metric("Water Clarity", _cl_label)
+        with _cl_cols[1]:
+            st.caption(_cl["evidence"])
 else:
     st.info("Trend analysis unavailable -- DNR survey data could not be loaded.")
 
@@ -953,7 +959,29 @@ except Exception:
 
 if stocking_records:
     df_stock = pd.DataFrame(stocking_records)
-    st.dataframe(df_stock, use_container_width=True, hide_index=True)
+    # Attempt to build a year × species stocked chart
+    _yr_col = next((c for c in df_stock.columns if "year" in c.lower()), None)
+    _sp_col = next((c for c in df_stock.columns if "spec" in c.lower() or "fish" in c.lower()), None)
+    _qty_col = next((c for c in df_stock.columns if "quan" in c.lower() or "numb" in c.lower() or "count" in c.lower()), None)
+    if _yr_col and _sp_col and _qty_col:
+        df_stock[_qty_col] = pd.to_numeric(df_stock[_qty_col], errors="coerce").fillna(0)
+        _pivot = df_stock.pivot_table(
+            index=_yr_col, columns=_sp_col, values=_qty_col, aggfunc="sum", fill_value=0
+        )
+        _fig_st, _ax_st = plt.subplots(figsize=(10, 4))
+        _pivot.plot(kind="bar", ax=_ax_st, stacked=True, colormap="tab10")
+        _ax_st.set_xlabel("Year")
+        _ax_st.set_ylabel("Fish Stocked")
+        _ax_st.set_title(f"Stocking History — {lake_name}")
+        _ax_st.legend(loc="upper right", fontsize=8, title="Species")
+        plt.xticks(rotation=45, ha="right")
+        plt.tight_layout()
+        st.pyplot(_fig_st)
+        plt.close(_fig_st)
+        with st.expander("Raw stocking records"):
+            st.dataframe(df_stock, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(df_stock, use_container_width=True, hide_index=True)
 else:
     st.info("No stocking records retrieved. This may mean no recent stocking, or the DNR API is unavailable.")
 
