@@ -99,17 +99,14 @@ def add_depth_contours(
 
     fg = folium.FeatureGroup(name="Depth Contours", show=show)
 
-    for feature in geojson_data.get("features", []):
-        depth = feature.get("properties", {}).get("depth_ft", 0)
-        color = _depth_to_color(depth)
-        style = {**_CONTOUR_STYLE_BASE, "color": color}
-        tooltip = f"{depth:.0f} ft"
-
-        folium.GeoJson(
-            feature,
-            style_function=lambda x, s=style: s,
-            tooltip=tooltip,
-        ).add_to(fg)
+    folium.GeoJson(
+        geojson_data,
+        style_function=lambda x: {
+            **_CONTOUR_STYLE_BASE,
+            "color": _depth_to_color(x["properties"].get("depth_ft", 0)),
+        },
+        tooltip=folium.GeoJsonTooltip(fields=["depth_ft"], aliases=["Depth (ft):"]),
+    ).add_to(fg)
 
     fg.add_to(m)
     return fg
@@ -148,7 +145,7 @@ def add_species_zone_overlay(
 
     folium.GeoJson(
         collection,
-        style_function=lambda x, s=style: s,
+        style_function=lambda x: style,
         tooltip=f"{species_name}: {depth_range[0]:.0f}-{depth_range[1]:.0f} ft preferred",
     ).add_to(fg)
 
