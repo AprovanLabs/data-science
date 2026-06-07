@@ -61,13 +61,13 @@ from onkia.usgs_glm import (  # noqa: F401
     has_data,
     available_lakes,
 )
-from onkia.satellite_lst import (  # noqa: F401
+from onkia.satellite_lst_stac import (  # noqa: F401
     HEATMAP_THRESHOLD_ACRES,
     LAKE_ACRES,
     LST_USEFUL_THRESHOLD_ACRES,
     get_latest_lst,
     get_lst_history,
-    get_lst_heatmap_url,
+    get_lst_heatmap,
     get_ndci,
     lake_radius_m,
 )
@@ -91,8 +91,8 @@ def _get_ndci_cached(lake_name: str, lat: float, lon: float):
 
 
 @st.cache_data(ttl=3600, show_spinner="Generating LST heatmap...")
-def _get_heatmap_url_cached(lat: float, lon: float, radius_m: float):
-    return get_lst_heatmap_url(lat, lon, radius_m)
+def _get_heatmap_cached(lat: float, lon: float, radius_m: float):
+    return get_lst_heatmap(lat, lon, radius_m)
 
 
 if "selected_lake_name" not in st.session_state:
@@ -664,10 +664,10 @@ if _lake_acres >= LST_USEFUL_THRESHOLD_ACRES:
 
         if _lake_acres >= HEATMAP_THRESHOLD_ACRES:
             with st.expander("Spatial Temperature Map"):
-                _heatmap_url = _get_heatmap_url_cached(lat, lon, lake_radius_m(lake_name))
-                if _heatmap_url:
+                _heatmap_png = _get_heatmap_cached(lat, lon, lake_radius_m(lake_name))
+                if _heatmap_png:
                     st.image(
-                        _heatmap_url,
+                        _heatmap_png,
                         caption=f"LST spatial heatmap -- {lake_name} (blue=cold, red=warm)",
                         use_column_width=True,
                     )

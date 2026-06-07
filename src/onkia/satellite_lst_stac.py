@@ -48,6 +48,7 @@ from onkia.satellite_lst import (
     LAKE_ACRES,
     LSTHistoryPoint,
     LSTObservation,
+    LST_USEFUL_THRESHOLD_ACRES,
     NDCIObservation,
     HEATMAP_THRESHOLD_ACRES,
     celsius_to_fahrenheit,
