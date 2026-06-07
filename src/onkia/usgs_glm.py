@@ -295,10 +295,14 @@ def fetch_from_sciencebase(
     if not missing:
         return True, "All requested lakes are already cached."
 
+    # ScienceBase blocks requests without a User-Agent header with 503.
+    _sb_session = requests.Session()
+    _sb_session.headers.update({"User-Agent": "AprovanLabs-DataScience/1.0 (requests)"})
+
     # --- fetch ScienceBase item manifest ---
     logger.info("Fetching ScienceBase item manifest from %s", _SCIENCEBASE_API)
     try:
-        resp = requests.get(_SCIENCEBASE_API, timeout=30)
+        resp = _sb_session.get(_SCIENCEBASE_API, timeout=30)
         resp.raise_for_status()
         item = resp.json()
     except Exception as exc:
@@ -309,14 +313,15 @@ def fetch_from_sciencebase(
     # --- download crosswalk CSV ---
     crosswalk_path = out_dir / "crosswalk.csv"
     if not crosswalk_path.exists():
+        # ScienceBase returns the download URL in the "url" field, not "downloadUrl" or "uri"
         cw_url = next(
-            (f.get("downloadUrl", f.get("uri", "")) for f in files
+            (f.get("url", "") for f in files
              if "crosswalk" in f.get("name", "").lower() and f.get("name", "").endswith(".csv")),
             None,
         )
         if cw_url:
             try:
-                r = requests.get(cw_url, timeout=60)
+                r = _sb_session.get(cw_url, timeout=60)
                 r.raise_for_status()
                 crosswalk_path.write_bytes(r.content)
                 logger.info("Saved crosswalk → %s", crosswalk_path)
@@ -346,15 +351,16 @@ def fetch_from_sciencebase(
         )
 
     # --- find NetCDF zip URL ---
+    # ScienceBase returns the download URL in the "url" field, not "downloadUrl" or "uri"
     zip_url = next(
-        (f.get("downloadUrl", f.get("uri", "")) for f in files
+        (f.get("url", "") for f in files
          if "lake_temp_preds_GLM_NLDAS" in f.get("name", "") and f.get("name", "").endswith(".zip")),
         None,
     )
     if not zip_url:
         # fall back to EA-LSTM
         zip_url = next(
-            (f.get("downloadUrl", f.get("uri", "")) for f in files
+            (f.get("url", "") for f in files
              if "lake_temp_preds_EALSTM" in f.get("name", "") and f.get("name", "").endswith(".zip")),
             None,
         )
@@ -363,7 +369,7 @@ def fetch_from_sciencebase(
 
     logger.info("Downloading NetCDF zip from ScienceBase (this may take several minutes)…")
     try:
-        with requests.get(zip_url, timeout=600, stream=True) as r:
+        with _sb_session.get(zip_url, timeout=600, stream=True) as r:
             r.raise_for_status()
             tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
             for chunk in r.iter_content(chunk_size=65536):
