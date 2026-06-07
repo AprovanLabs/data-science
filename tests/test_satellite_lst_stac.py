@@ -7,21 +7,19 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from onkia.satellite_lst import (
+from onkia.satellite_lst_stac import (
     LSTHistoryPoint,
     LSTObservation,
     NDCIObservation,
-    celsius_to_fahrenheit,
-    ndci_to_category,
-)
-from onkia.satellite_lst_stac import (
     _cloud_mask_landsat,
     _point_to_bbox,
     _s2_band_keys,
+    celsius_to_fahrenheit,
     get_latest_lst,
     get_lst_heatmap,
     get_lst_history,
     get_ndci,
+    ndci_to_category,
 )
 
 
