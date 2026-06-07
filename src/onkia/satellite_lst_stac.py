@@ -1,6 +1,6 @@
 """Satellite-derived lake surface temperature via STAC APIs.
 
-Drop-in replacement for satellite_lst.py (which depends on Google Earth Engine).
+Replaces the former GEE-based satellite_lst module.
 Uses the Microsoft Planetary Computer STAC API (pystac-client + planetary_computer)
 to fetch Landsat 8/9 Collection 2 Level-2 thermal data (ST_B10 band).
 No credentials required — the Planetary Computer provides free SAS-signed
@@ -9,7 +9,7 @@ URLs to Azure Blob Storage.
 For Sentinel-2 NDCI, also uses the Planetary Computer (free). Falls back to
 the Copernicus Data Space Ecosystem STAC API (requires CDSE_ACCESS_TOKEN).
 
-Public API mirrors satellite_lst.py:
+Public API:
   - get_latest_lst()  — most recent cloud-free LST per lake
   - get_lst_history()  — historical LST trend
   - get_ndci()         — Sentinel-2 NDCI (chlorophyll-a proxy)
@@ -21,6 +21,7 @@ import io
 import logging
 import math
 import os
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -44,18 +45,121 @@ try:
 except ImportError:
     _HAS_PLANETARY_COMPUTER = False
 
-from onkia.satellite_lst import (
-    LAKE_ACRES,
-    LSTHistoryPoint,
-    LSTObservation,
-    LST_USEFUL_THRESHOLD_ACRES,
-    NDCIObservation,
-    HEATMAP_THRESHOLD_ACRES,
-    celsius_to_fahrenheit,
-    kelvin_to_celsius,
-    lake_radius_m,
-    ndci_to_category,
-)
+# ---------------------------------------------------------------------------
+# Lake metadata
+# ---------------------------------------------------------------------------
+
+#: Approximate surface area in acres for Wright County lakes.
+LAKE_ACRES: dict[str, float] = {
+    "Clearwater": 3158.0,
+    "Buffalo Lake": 1552.0,
+    "Lake Sylvia": 904.0,
+    "Twin Lake": 872.0,
+    "Lake Pulaski": 813.0,
+    "Maple Lake": 777.0,
+    "Howard Lake": 711.0,
+    "Pelican Lake": 3800.0,
+    "Lake Charlotte": 253.0,
+    "Lake Ida": 226.0,
+    "Bass Lake": 218.0,
+    "Lake Francis": 460.0,
+    "Lake Andrew": 200.0,
+    "Lake Montrose": 150.0,
+    "South Center Lake": 100.0,
+}
+
+#: Lakes below this threshold get a single mean LST value only.
+LST_USEFUL_THRESHOLD_ACRES: float = 700.0
+
+#: Lakes at or above this threshold get a spatial heatmap overlay.
+HEATMAP_THRESHOLD_ACRES: float = 1000.0
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LSTObservation:
+    """Surface temperature result for a single lake snapshot."""
+
+    lake_name: str
+    temp_celsius: Optional[float] = None
+    temp_fahrenheit: Optional[float] = None
+    observation_date: Optional[date] = None
+    #: Number of cloud-free Landsat scenes composited.
+    scene_count: int = 0
+    #: Pixel count used in the mean reduction.
+    pixel_count: Optional[int] = None
+    satellite: str = "Landsat 8/9"
+    fallback_used: bool = False
+    error_msg: Optional[str] = None
+
+
+@dataclass
+class LSTHistoryPoint:
+    """One LST observation in a historical time series."""
+
+    observation_date: date
+    temp_celsius: float
+    temp_fahrenheit: float
+
+
+@dataclass
+class NDCIObservation:
+    """Sentinel-2 Normalised Difference Chlorophyll Index result."""
+
+    lake_name: str
+    ndci_value: Optional[float] = None
+    #: Qualitative category derived from NDCI.
+    chlorophyll_category: Optional[str] = None
+    observation_date: Optional[date] = None
+    fallback_used: bool = False
+    error_msg: Optional[str] = None
+
+# ---------------------------------------------------------------------------
+# Unit helpers
+# ---------------------------------------------------------------------------
+
+
+def celsius_to_fahrenheit(c: float) -> float:
+    """Convert Celsius to Fahrenheit."""
+    return c * 9.0 / 5.0 + 32.0
+
+
+def kelvin_to_celsius(k: float) -> float:
+    """Convert Kelvin to Celsius."""
+    return k - 273.15
+
+
+def ndci_to_category(ndci: float) -> str:
+    """Map NDCI value to a qualitative chlorophyll category.
+
+    Thresholds from Mishra & Mishra (2012):
+      ndci < 0.0   → low
+      0.0–0.1     → moderate
+      > 0.1       → high
+    """
+    if ndci < 0.0:
+        return "low"
+    if ndci <= 0.1:
+        return "moderate"
+    return "high"
+
+
+def lake_radius_m(lake_name: str) -> float:
+    """Return a search-radius (metres) appropriate for the lake's area.
+
+    Larger lakes need a bigger buffer to capture enough pixels.
+    """
+    acres = LAKE_ACRES.get(lake_name, 300.0)
+    if acres >= 2000:
+        return 3000.0
+    if acres >= 1000:
+        return 2000.0
+    if acres >= 500:
+        return 1200.0
+    return 700.0
 
 _log = logging.getLogger(__name__)
 
