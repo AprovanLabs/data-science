@@ -325,9 +325,25 @@ def _generate_plan_cached(
 ):
     import json as _json
     from onkia.plan_generator import generate_evening_plan as _gp
-    from onkia.weather import WeatherResult as _WR
+    from onkia.weather import WeatherResult as _WR, PressureTrend as _PT, PressureInterpretation as _PI
     from onkia.models import WaterTempPreference as _WTP
-    weather = _WR(**_json.loads(_weather_json))
+
+    _TREND_DEFAULTS = {
+        _PT.FALLING: ("Falling rapidly", "Fish feed aggressively before a front — best bite window!"),
+        _PT.RISING: ("Rising", "Fish may be less active — try deeper water and slower presentations."),
+        _PT.RISING_AFTER_DROP: ("Rising after a drop", "Fish resume feeding after pressure stabilizes — good action."),
+        _PT.HIGH_STEADY: ("High and steady", "High pressure = slower fishing. Focus on deep structure and live bait."),
+        _PT.STABLE: ("Stable", "Normal fish activity expected."),
+    }
+
+    raw = _json.loads(_weather_json)
+    if raw.get("pressure_trend"):
+        trend = _PT(raw["pressure_trend"])
+        raw["pressure_trend"] = trend
+        label, note = _TREND_DEFAULTS.get(trend, (trend.value, ""))
+        raw["pressure_interpretation"] = _PI(trend=trend, label=label, fishing_note=note)
+
+    weather = _WR(**raw)
     pref_objs = [_WTP(**p) for p in _json.loads(_prefs_json)]
     survey = _json.loads(_survey_json) if _survey_json else None
     return _gp(weather, water_temp_f, pref_objs, survey, wind_dir_deg, start_hour, end_hour)
