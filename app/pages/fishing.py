@@ -316,11 +316,20 @@ if lake_name_for_zones and show_species_zones and zone_species:
                 "color": SPECIES_COLORS.get(sp, "#457b9d"),
             })
 
+_dnr_coord_overrides = {}
+for _r in st.session_state["dnr_search_results"]:
+    _rname = _r.get("name", "")
+    if _rname in WRIGHT_COUNTY_LAKES:
+        _coords = _r.get("point", {}).get("epsg:4326", [])
+        if len(_coords) >= 2:
+            _dnr_coord_overrides[_rname] = (float(_coords[1]), float(_coords[0]))
+
 fmap = build_lake_map(
     selected_lake=st.session_state["selected_lake_name"],
     search_results=st.session_state["dnr_search_results"],
     show_bathymetry=show_bathymetry,
     species_zones=species_zones if species_zones else None,
+    lake_coord_overrides=_dnr_coord_overrides if _dnr_coord_overrides else None,
 )
 map_data = st_folium(fmap, width="100%", height=400, returned_objects=["last_object_clicked"])
 

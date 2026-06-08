@@ -161,6 +161,7 @@ def build_lake_map(
     show_bathymetry: bool = False,
     species_zones: Optional[List[Dict[str, Any]]] = None,
     bathymetry_dir: Optional[Path] = None,
+    lake_coord_overrides: Optional[Dict[str, Tuple[float, float]]] = None,
 ) -> folium.Map:
     m = folium.Map(
         location=center,
@@ -169,6 +170,8 @@ def build_lake_map(
     )
 
     for name, (lat, lon, dow) in WRIGHT_COUNTY_LAKES.items():
+        if lake_coord_overrides and name in lake_coord_overrides:
+            lat, lon = lake_coord_overrides[name]
         is_selected = name == selected_lake
         folium.CircleMarker(
             location=(lat, lon),

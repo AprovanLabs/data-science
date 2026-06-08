@@ -1,6 +1,7 @@
 """Tests for onkia.plan_generator — evening fishing plan generator."""
 from __future__ import annotations
 
+import json
 from typing import Dict, List, Optional
 
 import pytest
@@ -486,3 +487,95 @@ class TestGenerateEveningPlan:
         techniques_warm = [b.technique for b in plan_warm.blocks]
         techniques_cold = [b.technique for b in plan_cold.blocks]
         assert techniques_warm != techniques_cold or warm_species != cold_species
+
+
+def _serialize_weather_like_fishing_page(weather: WeatherResult) -> str:
+    """Reproduce the JSON serialization performed by fishing.py before calling the
+    Streamlit-cached plan generator.  pressure_trend is stored as its .value string
+    and pressure_interpretation is omitted entirely."""
+    return json.dumps({
+        "air_temp_f": weather.air_temp_f,
+        "pressure_hpa": weather.pressure_hpa,
+        "pressure_inhg": weather.pressure_inhg,
+        "wind_speed_mph": weather.wind_speed_mph,
+        "wind_direction_deg": weather.wind_direction_deg,
+        "cloud_cover_pct": weather.cloud_cover_pct,
+        "pressure_trend": weather.pressure_trend.value if weather.pressure_trend else None,
+        "source": weather.source,
+        "fallback_used": weather.fallback_used,
+    })
+
+
+def _deserialize_weather_like_cache_layer(weather_json: str) -> WeatherResult:
+    """Reproduce the fixed deserialization in fishing_data._generate_plan_cached."""
+    raw = json.loads(weather_json)
+    if raw.get("pressure_trend"):
+        trend = PressureTrend(raw["pressure_trend"])
+        raw["pressure_trend"] = trend
+        _TREND_DEFAULTS = {
+            PressureTrend.FALLING: ("Falling rapidly", "Fish feed aggressively before a front — best bite window!"),
+            PressureTrend.RISING: ("Rising", "Fish may be less active — try deeper water and slower presentations."),
+            PressureTrend.RISING_AFTER_DROP: ("Rising after a drop", "Fish resume feeding after pressure stabilizes — good action."),
+            PressureTrend.HIGH_STEADY: ("High and steady", "High pressure = slower fishing. Focus on deep structure and live bait."),
+            PressureTrend.STABLE: ("Stable", "Normal fish activity expected."),
+        }
+        label, note = _TREND_DEFAULTS.get(trend, (trend.value, ""))
+        raw["pressure_interpretation"] = PressureInterpretation(trend=trend, label=label, fishing_note=note)
+    return WeatherResult(**raw)
+
+
+class TestWeatherJsonRoundTrip:
+    """Regression tests for the Streamlit cache JSON round-trip bug.
+
+    Before the fix, fishing.py serialised pressure_trend as a plain string and
+    _generate_plan_cached reconstructed WeatherResult without converting it back
+    to the PressureTrend enum.  plan_generator._build_conditions_summary then
+    called pressure_trend.value on the string, raising AttributeError.
+    """
+
+    @pytest.mark.parametrize("trend", list(PressureTrend))
+    def test_round_trip_preserves_enum(self, trend):
+        weather = _make_weather(pressure_trend=trend)
+        recovered = _deserialize_weather_like_cache_layer(
+            _serialize_weather_like_fishing_page(weather)
+        )
+        assert recovered.pressure_trend is trend
+
+    @pytest.mark.parametrize("trend", list(PressureTrend))
+    def test_round_trip_preserves_pressure_interpretation(self, trend):
+        weather = _make_weather(pressure_trend=trend)
+        recovered = _deserialize_weather_like_cache_layer(
+            _serialize_weather_like_fishing_page(weather)
+        )
+        assert recovered.pressure_interpretation is not None
+        assert recovered.pressure_interpretation.trend is trend
+        assert recovered.pressure_interpretation.label
+
+    @pytest.mark.parametrize("trend", list(PressureTrend))
+    def test_generate_plan_does_not_raise_with_round_tripped_weather(self, trend):
+        """The AttributeError must not be raised after the fix."""
+        weather = _make_weather(air_temp_f=68.0, pressure_trend=trend)
+        recovered = _deserialize_weather_like_cache_layer(
+            _serialize_weather_like_fishing_page(weather)
+        )
+        plan = generate_evening_plan(
+            weather=recovered,
+            water_temp_f=68.0,
+            target_species_prefs=_TARGET_PREFS,
+        )
+        assert plan.conditions_summary
+        assert trend.value in plan.conditions_summary
+
+    def test_none_pressure_trend_round_trips_safely(self):
+        weather = _make_weather(pressure_trend=None)
+        recovered = _deserialize_weather_like_cache_layer(
+            _serialize_weather_like_fishing_page(weather)
+        )
+        assert recovered.pressure_trend is None
+        assert recovered.pressure_interpretation is None
+        plan = generate_evening_plan(
+            weather=recovered,
+            water_temp_f=68.0,
+            target_species_prefs=_TARGET_PREFS,
+        )
+        assert plan.conditions_summary
