@@ -49,23 +49,25 @@ except ImportError:
 # Lake metadata
 # ---------------------------------------------------------------------------
 
-#: Approximate surface area in acres for Wright County lakes.
+#: Surface area in acres for Wright County lakes (MN DNR LakeFinder morphology).
 LAKE_ACRES: dict[str, float] = {
-    "Clearwater": 3158.0,
-    "Buffalo Lake": 1552.0,
-    "Lake Sylvia": 904.0,
-    "Twin Lake": 872.0,
-    "Lake Pulaski": 813.0,
-    "Maple Lake": 777.0,
-    "Howard Lake": 711.0,
+    "Clearwater": 3187.0,
     "Pelican Lake": 3800.0,
+    "Buffalo Lake": 1552.0,
+    "Sugar Lake": 1014.0,
+    "West Lake Sylvia": 904.0,
+    "Lake Pulaski": 813.0,
+    "Cedar Lake": 790.0,
+    "Howard Lake": 745.0,
+    "East Lake Sylvia": 669.0,
+    "Maple Lake": 633.0,
+    "Waverly Lake": 494.0,
+    "Granite Lake": 362.0,
+    "French Lake": 346.0,
+    "Ramsey Lake": 317.0,
     "Lake Charlotte": 253.0,
     "Lake Ida": 226.0,
-    "Bass Lake": 218.0,
-    "Lake Francis": 460.0,
-    "Lake Andrew": 200.0,
-    "Lake Montrose": 150.0,
-    "South Center Lake": 100.0,
+    "Bass Lake": 222.0,
 }
 
 #: Lakes below this threshold get a single mean LST value only.

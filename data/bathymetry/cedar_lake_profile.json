@@ -1,0 +1,15 @@
+{
+  "lake": "Cedar Lake",
+  "dow": "86022700",
+  "max_depth": 100.0,
+  "min_depth": 0.0,
+  "contour_count": 9,
+  "depths": [
+    0,
+    20,
+    40,
+    60,
+    80,
+    100
+  ]
+}

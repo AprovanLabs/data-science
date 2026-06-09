@@ -1,0 +1,16 @@
+{
+  "lake": "Bass Lake",
+  "dow": "86023400",
+  "max_depth": 30.0,
+  "min_depth": 0.0,
+  "contour_count": 9,
+  "depths": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    25,
+    30
+  ]
+}

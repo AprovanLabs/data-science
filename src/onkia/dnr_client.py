@@ -37,8 +37,11 @@ def _csv_to_dicts(data: str, delimiter: str = ",") -> List[Dict[str, str]]:
 
 
 class MnDnrLakeTopographyService:
-    _API_BY_NAME_AND_COUNTY = "http://services.dnr.state.mn.us/api/lakefinder/by_name/v1"
-    _API_MAP_HOST = "https://maps2.dnr.state.mn.us/cgi-bin/lakefinder/detail.cgi"
+    # NOTE: maps2.dnr.state.mn.us no longer resolves and the old
+    # services.dnr.state.mn.us/api/lakefinder/by_name endpoint returns 403.
+    # The LakeFinder CGIs now live on maps.dnr.state.mn.us.
+    _API_BY_NAME_AND_COUNTY = "https://maps.dnr.state.mn.us/cgi-bin/lakefinder/search.cgi"
+    _API_MAP_HOST = "https://maps.dnr.state.mn.us/cgi-bin/lakefinder/detail.cgi"
     _API_SPECIES_REPORT = "https://maps2.dnr.state.mn.us/cgi-bin/fom.cgi"
     _API_WATER_LEVELS_REPORT = "https://files.dnr.state.mn.us/cgi-bin/lk_levels_dump.cgi"
     _API_STOCKING_REPORT = "https://files.dnr.state.mn.us/cgi-bin/lk_stocking.cgi"

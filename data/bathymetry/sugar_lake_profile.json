@@ -1,0 +1,18 @@
+{
+  "lake": "Sugar Lake",
+  "dow": "86023300",
+  "max_depth": 60.0,
+  "min_depth": 0.0,
+  "contour_count": 37,
+  "depths": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    30,
+    40,
+    50,
+    60
+  ]
+}

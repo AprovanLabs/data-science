@@ -1,0 +1,16 @@
+{
+  "lake": "Granite Lake",
+  "dow": "86021700",
+  "max_depth": 30.0,
+  "min_depth": 0.0,
+  "contour_count": 12,
+  "depths": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    25,
+    30
+  ]
+}

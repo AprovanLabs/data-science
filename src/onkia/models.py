@@ -20,7 +20,7 @@ class OnkiaBaseModel(BaseModel):
 
 class Morphology(OnkiaBaseModel):
     area: float
-    max_depth: int
+    max_depth: float
     mean_depth: float
     shore_length: float
     littoral_area: float
@@ -124,21 +124,23 @@ class FishCatchSummary(OnkiaBaseModel):
 
 
 class Survey(OnkiaBaseModel):
-    survey_sub_type: str
+    survey_sub_type: str = ""
     lengths: Optional[Union[Length, dict]] = None
-    survey_type: str
-    survey_date: str
+    survey_type: str = ""
+    survey_date: str = ""
     narrative: str = ""
-    survey_id: int
+    # Older API payloads included a numeric surveyId; current ones do not.
+    survey_id: Optional[int] = None
     fish_catch_summaries: List[FishCatchSummary] = []
-    header_info: List[Optional[str]] = []
+    # headerInfo is a dict in current API responses, a list in older ones.
+    header_info: Union[Dict, List[Optional[str]]] = {}
 
 
 class SurveyOverview(OnkiaBaseModel):
     littoral_acres: float
     accesses: List[Access] = []
     mean_depth_feet: Optional[float] = None
-    max_depth_feet: int
+    max_depth_feet: float
     area_acres: float
     lake_name: str = ""
     average_water_clarity: Union[float, str] = 0.0

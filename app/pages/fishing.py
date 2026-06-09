@@ -47,6 +47,7 @@ from onkia.analysis import LakeAnalysis, TrendStatus, analyze_lake, parse_stocki
 from onkia.bathymetry import (  # noqa: F401
     available_lakes as bathymetry_available_lakes,
     contour_color,
+    depth_area_profile,
     load_contours,
     load_depth_profile,
     species_depth_zone,
@@ -571,20 +572,42 @@ if _has_bathy:
             if depths:
                 st.markdown(f"- **Contour Depths:** {', '.join(str(int(d)) for d in depths)} ft")
 
-                fig_bathy, ax_bathy = plt.subplots(figsize=(8, 3))
-                ax_bathy.barh(
-                    [f"{d} ft" for d in depths],
-                    [1] * len(depths),
-                    color=[contour_color(d) for d in depths],
-                    edgecolor="#1d3557",
-                    linewidth=0.5,
-                )
-                ax_bathy.set_xlabel("Contour")
-                ax_bathy.set_title(f"Depth Contours -- {lake_name}")
-                ax_bathy.xaxis.set_visible(False)
-                plt.tight_layout()
-                st.pyplot(fig_bathy)
-                plt.close(fig_bathy)
+                area_profile = depth_area_profile(lake_name)
+                if area_profile:
+                    profile_depths = [d for d, _ in area_profile]
+                    profile_acres = [a for _, a in area_profile]
+
+                    fig_bathy, ax_bathy = plt.subplots(figsize=(8, 3.5))
+                    ax_bathy.fill_betweenx(
+                        profile_depths,
+                        0,
+                        profile_acres,
+                        color="#4db8ff",
+                        alpha=0.35,
+                    )
+                    ax_bathy.plot(profile_acres, profile_depths, color="#1d3557", linewidth=1.5)
+                    ax_bathy.scatter(
+                        profile_acres,
+                        profile_depths,
+                        c=[contour_color(d) for d in profile_depths],
+                        edgecolors="#1d3557",
+                        linewidths=0.5,
+                        zorder=3,
+                    )
+                    ax_bathy.invert_yaxis()
+                    ax_bathy.set_xlim(left=0)
+                    ax_bathy.set_xlabel("Water area enclosed by contour (acres)")
+                    ax_bathy.set_ylabel("Depth (ft)")
+                    ax_bathy.set_title(f"Depth-Area Profile -- {lake_name}")
+                    ax_bathy.grid(True, linestyle=":", alpha=0.5)
+                    plt.tight_layout()
+                    st.pyplot(fig_bathy)
+                    plt.close(fig_bathy)
+                    st.caption(
+                        "Hypsographic curve: surface area enclosed by each DNR depth "
+                        "contour. Steep drops indicate sharp breaks; gradual slopes "
+                        "indicate flats."
+                    )
     else:
         st.info("Depth profile data not available for this lake.")
 else:

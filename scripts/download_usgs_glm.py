@@ -44,21 +44,23 @@ DATA_DIR = REPO_ROOT / "data" / "usgs_glm"
 SCIENCEBASE_ITEM = "6206d3c2d34ec05caca53071"
 
 WRIGHT_COUNTY_LAKES: Dict[str, Tuple[float, float, str]] = {
-    "Clearwater": (45.3052, -94.1184, "86025200"),
-    "Lake Pulaski": (45.2703, -94.0398, "86099900"),
-    "Lake Sylvia": (45.2853, -93.9960, "86099700"),
-    "Pelican Lake": (45.3193, -93.9085, "86099600"),
-    "Maple Lake": (45.2243, -94.0062, "86056300"),
-    "Howard Lake": (45.0618, -94.0740, "86045400"),
-    "Lake Montrose": (45.0698, -94.0169, "86063600"),
-    "Lake Andrew": (45.1437, -94.2478, "86003800"),
-    "Buffalo Lake": (45.1918, -94.2354, "86012000"),
-    "Bass Lake": (45.2531, -94.1152, "86009200"),
-    "South Center Lake": (45.3804, -93.9371, "86111700"),
-    "Lake Francis": (45.1312, -93.9812, "86040700"),
-    "Lake Charlotte": (45.1956, -93.9374, "86020400"),
-    "Twin Lake": (45.3315, -94.1987, "86120900"),
-    "Lake Ida": (45.0893, -94.2175, "86047300"),
+    "Clearwater": (45.305151, -94.118377, "86025200"),
+    "Lake Pulaski": (45.201091, -93.853719, "86005300"),
+    "West Lake Sylvia": (45.248600, -94.213272, "86027900"),
+    "East Lake Sylvia": (45.252140, -94.195182, "86028900"),
+    "Pelican Lake": (45.232986, -93.761074, "86003100"),
+    "Maple Lake": (45.233273, -93.965263, "86013401"),
+    "Howard Lake": (45.072609, -94.069390, "86019900"),
+    "Lake Charlotte": (45.151031, -93.747086, "86001100"),
+    "Buffalo Lake": (45.162705, -93.893336, "86009000"),
+    "Bass Lake": (45.321655, -94.102800, "86023400"),
+    "Lake Ida": (45.303705, -93.904368, "86014600"),
+    "Ramsey Lake": (45.210702, -93.996352, "86012000"),
+    "Sugar Lake": (45.317764, -94.038057, "86023300"),
+    "Waverly Lake": (45.075360, -93.972443, "86011400"),
+    "Cedar Lake": (45.265732, -94.067116, "86022700"),
+    "Granite Lake": (45.184752, -94.110140, "86021700"),
+    "French Lake": (45.208502, -94.163034, "86027300"),
 }
 
 DOW_IDS = {v[2] for v in WRIGHT_COUNTY_LAKES.values()}
@@ -320,12 +322,14 @@ def generate_sample_data(output_dir: Optional[Path] = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     for name, (lat, lon, dow) in WRIGHT_COUNTY_LAKES.items():
+        # Approximate max depths in metres (DNR max depth in feet * 0.3048).
         max_depth_map = {
-            "Clearwater": 25, "Lake Pulaski": 18, "Lake Sylvia": 19,
-            "Pelican Lake": 14, "Maple Lake": 12, "Howard Lake": 9,
-            "Lake Montrose": 8, "Lake Andrew": 22, "Buffalo Lake": 10,
-            "Bass Lake": 11, "South Center Lake": 20, "Lake Francis": 15,
-            "Lake Charlotte": 8, "Twin Lake": 10, "Lake Ida": 16,
+            "Clearwater": 22, "Lake Pulaski": 26, "West Lake Sylvia": 30,
+            "East Lake Sylvia": 24, "Pelican Lake": 3, "Maple Lake": 23,
+            "Howard Lake": 12, "Lake Charlotte": 14, "Buffalo Lake": 10,
+            "Bass Lake": 10, "Lake Ida": 18, "Ramsey Lake": 24,
+            "Sugar Lake": 21, "Waverly Lake": 21, "Cedar Lake": 33,
+            "Granite Lake": 10, "French Lake": 15,
         }
         max_depth = max_depth_map.get(name, 15.0)
         _gen(dow, name, max_depth, lat, output_dir=out)

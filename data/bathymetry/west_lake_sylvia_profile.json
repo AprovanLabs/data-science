@@ -1,12 +1,11 @@
 {
-  "lake": "Lake Pulaski",
-  "dow": "86005300",
+  "lake": "West Lake Sylvia",
+  "dow": "86027900",
   "max_depth": 80.0,
   "min_depth": 0.0,
-  "contour_count": 25,
+  "contour_count": 31,
   "depths": [
     0,
-    5,
     10,
     15,
     20,

@@ -294,7 +294,8 @@ def _build_cloud_cover_year_chart() -> plt.Figure:
 def _search_lake_cached(name: str) -> Optional[dict]:
     svc = MnDnrLakeTopographyService()
     lake = svc.get_lake(name, county_id=86)
-    return lake.model_dump() if lake else None
+    # by_alias keeps keys like "epsg:4326" that the map component expects.
+    return lake.model_dump(by_alias=True) if lake else None
 
 
 @st.cache_data(show_spinner="Loading survey data from DNR...")

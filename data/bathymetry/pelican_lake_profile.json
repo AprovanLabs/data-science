@@ -1,21 +1,12 @@
 {
   "lake": "Pelican Lake",
-  "dow": "86099600",
-  "max_depth": 80.0,
-  "min_depth": 5.0,
-  "contour_count": 12,
+  "dow": "86003100",
+  "max_depth": 10.0,
+  "min_depth": 0.0,
+  "contour_count": 38,
   "depths": [
+    0,
     5,
-    10,
-    15,
-    20,
-    25,
-    30,
-    35,
-    40,
-    50,
-    60,
-    70,
-    80
+    10
   ]
 }

@@ -128,7 +128,7 @@ class TestBuildLakeMapWithBathymetry:
 class TestLakeCoordOverrides:
     def test_override_replaces_hardcoded_coordinates(self):
         """Coordinate override must appear in the rendered HTML; hardcoded default must not."""
-        # Clearwater hardcoded: (45.3052, -94.1184)
+        # Clearwater hardcoded: (45.305151, -94.118377)
         override_lat, override_lon = 45.9999, -94.7777
         m = build_lake_map(
             lake_coord_overrides={"Clearwater": (override_lat, override_lon)},
@@ -137,28 +137,28 @@ class TestLakeCoordOverrides:
         assert str(override_lat) in html
         assert str(override_lon) in html
         # The default hardcoded value should NOT appear (it was replaced)
-        assert "45.3052" not in html
+        assert "45.305151" not in html
 
     def test_non_overridden_lakes_keep_hardcoded_coords(self):
         """Lakes without an override must still use their hardcoded coordinates."""
-        # Clearwater (overridden) and Howard Lake (not overridden, lat=45.0618)
+        # Clearwater (overridden) and Howard Lake (not overridden, lat=45.072609)
         m = build_lake_map(
             lake_coord_overrides={"Clearwater": (45.9999, -94.7777)},
         )
         html = m._repr_html_()
-        assert "45.0618" in html
+        assert "45.072609" in html
 
     def test_none_override_uses_hardcoded_coords(self):
         """Passing lake_coord_overrides=None must not replace any hardcoded coordinates."""
         m = build_lake_map(lake_coord_overrides=None)
         html = m._repr_html_()
         # Clearwater hardcoded coordinates must still appear
-        assert "45.3052" in html
-        assert "-94.1184" in html
+        assert "45.305151" in html
+        assert "-94.118377" in html
 
     def test_empty_override_dict_uses_hardcoded_coords(self):
         """An empty dict override must leave all hardcoded coords unchanged."""
         m = build_lake_map(lake_coord_overrides={})
         html = m._repr_html_()
-        assert "45.3052" in html
-        assert "-94.1184" in html
+        assert "45.305151" in html
+        assert "-94.118377" in html

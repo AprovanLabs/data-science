@@ -1,0 +1,17 @@
+{
+  "lake": "French Lake",
+  "dow": "86027300",
+  "max_depth": 50.0,
+  "min_depth": 0.0,
+  "contour_count": 20,
+  "depths": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    30,
+    40,
+    50
+  ]
+}

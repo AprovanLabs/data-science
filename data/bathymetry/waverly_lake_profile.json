@@ -1,9 +1,9 @@
 {
-  "lake": "Lake Pulaski",
-  "dow": "86005300",
-  "max_depth": 80.0,
+  "lake": "Waverly Lake",
+  "dow": "86011400",
+  "max_depth": 70.0,
   "min_depth": 0.0,
-  "contour_count": 25,
+  "contour_count": 12,
   "depths": [
     0,
     5,
@@ -14,7 +14,6 @@
     40,
     50,
     60,
-    70,
-    80
+    70
   ]
 }

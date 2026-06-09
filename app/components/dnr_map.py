@@ -16,29 +16,37 @@ logger = logging.getLogger(__name__)
 WRIGHT_COUNTY_CENTER = (45.17, -94.05)
 WRIGHT_COUNTY_ZOOM = 10
 
+# Verified against the MN DNR LakeFinder API (search.cgi, county=86).
+# Coordinates are the DNR lake centroid points; DOW numbers are the real
+# Division of Waters lake IDs used by survey/stocking/bathymetry services.
 WRIGHT_COUNTY_LAKES: Dict[str, Tuple[float, float, str]] = {
-    "Clearwater": (45.3052, -94.1184, "86025200"),
-    "Lake Pulaski": (45.2703, -94.0398, "86099900"),
-    "Lake Sylvia": (45.2853, -93.9960, "86099700"),
-    "Pelican Lake": (45.3193, -93.9085, "86099600"),
-    "Maple Lake": (45.2243, -94.0062, "86056300"),
-    "Howard Lake": (45.0618, -94.0740, "86045400"),
-    "Lake Montrose": (45.0698, -94.0169, "86063600"),
-    "Lake Andrew": (45.1437, -94.2478, "86003800"),
-    "Buffalo Lake": (45.1918, -94.2354, "86012000"),
-    "Bass Lake": (45.2531, -94.1152, "86009200"),
-    "South Center Lake": (45.3804, -93.9371, "86111700"),
-    "Lake Francis": (45.1312, -93.9812, "86040700"),
-    "Lake Charlotte": (45.1956, -93.9374, "86020400"),
-    "Twin Lake": (45.3315, -94.1987, "86120900"),
-    "Lake Ida": (45.0893, -94.2175, "86047300"),
+    "Clearwater": (45.305151, -94.118377, "86025200"),
+    "Lake Pulaski": (45.201091, -93.853719, "86005300"),
+    "West Lake Sylvia": (45.248600, -94.213272, "86027900"),
+    "East Lake Sylvia": (45.252140, -94.195182, "86028900"),
+    "Pelican Lake": (45.232986, -93.761074, "86003100"),
+    "Maple Lake": (45.233273, -93.965263, "86013401"),
+    "Howard Lake": (45.072609, -94.069390, "86019900"),
+    "Lake Charlotte": (45.151031, -93.747086, "86001100"),
+    "Buffalo Lake": (45.162705, -93.893336, "86009000"),
+    "Bass Lake": (45.321655, -94.102800, "86023400"),
+    "Lake Ida": (45.303705, -93.904368, "86014600"),
+    "Ramsey Lake": (45.210702, -93.996352, "86012000"),
+    "Sugar Lake": (45.317764, -94.038057, "86023300"),
+    "Waverly Lake": (45.075360, -93.972443, "86011400"),
+    "Cedar Lake": (45.265732, -94.067116, "86022700"),
+    "Granite Lake": (45.184752, -94.110140, "86021700"),
+    "French Lake": (45.208502, -94.163034, "86027300"),
 }
 
 _BATHYMETRY_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "bathymetry"
 
+# Contour geometries are closed polygons; render them as outline-only so
+# overlapping depth rings stay visible instead of filling the lake solid.
 _CONTOUR_STYLE_BASE = {
     "weight": 1.5,
     "opacity": 0.7,
+    "fill": False,
 }
 
 _SPECIES_ZONE_STYLE = {

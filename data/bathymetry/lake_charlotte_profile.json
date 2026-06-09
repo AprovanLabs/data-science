@@ -1,0 +1,15 @@
+{
+  "lake": "Lake Charlotte",
+  "dow": "86001100",
+  "max_depth": 40.0,
+  "min_depth": 0.0,
+  "contour_count": 9,
+  "depths": [
+    0,
+    10,
+    15,
+    20,
+    30,
+    40
+  ]
+}
