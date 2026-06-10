@@ -119,6 +119,25 @@ class NDCIObservation:
     fallback_used: bool = False
     error_msg: Optional[str] = None
 
+
+@dataclass
+class SatelliteOverlayGrids:
+    """Georeferenced satellite grids for map overlays (EPSG:4326).
+
+    ``lst_grid`` holds surface temperature in °C; ``ndci_grid`` holds NDCI
+    (chlorophyll/vegetation proxy). Both are 2-D xarray DataArrays with
+    ``y``/``x`` lat/lon coordinates, so map bounds can be derived via
+    :func:`grid_bounds`. Either grid may be None if no cloud-free scene
+    was found.
+    """
+
+    lake_name: str
+    lst_grid: Optional["xr.DataArray"] = None
+    lst_date: Optional[date] = None
+    ndci_grid: Optional["xr.DataArray"] = None
+    ndci_date: Optional[date] = None
+    error_msg: Optional[str] = None
+
 # ---------------------------------------------------------------------------
 # Unit helpers
 # ---------------------------------------------------------------------------
@@ -149,12 +168,15 @@ def ndci_to_category(ndci: float) -> str:
     return "high"
 
 
-def lake_radius_m(lake_name: str) -> float:
+def lake_radius_m(lake_name: str, acres: Optional[float] = None) -> float:
     """Return a search-radius (metres) appropriate for the lake's area.
 
-    Larger lakes need a bigger buffer to capture enough pixels.
+    Larger lakes need a bigger buffer to capture enough pixels. ``acres``
+    overrides the built-in Wright County table for lakes added at runtime
+    (e.g. from a DNR LakeFinder search in another county).
     """
-    acres = LAKE_ACRES.get(lake_name, 300.0)
+    if acres is None or acres <= 0:
+        acres = LAKE_ACRES.get(lake_name, 300.0)
     if acres >= 2000:
         return 3000.0
     if acres >= 1000:
@@ -782,3 +804,142 @@ def get_ndci(
             fallback_used=True,
             error_msg=str(exc),
         )
+
+
+# ---------------------------------------------------------------------------
+# Map overlay grids (for folium ImageOverlay)
+# ---------------------------------------------------------------------------
+
+
+def grid_bounds(da: "xr.DataArray") -> list:
+    """Return ``[[south, west], [north, east]]`` bounds of an EPSG:4326 grid."""
+    lats = da["y"].values
+    lons = da["x"].values
+    return [
+        [float(lats.min()), float(lons.min())],
+        [float(lats.max()), float(lons.max())],
+    ]
+
+
+def get_lst_grid(
+    lat: float,
+    lon: float,
+    radius_m: float,
+    days_back: int = 45,
+) -> tuple:
+    """Cloud-masked surface temperature grid (°C) from the latest Landsat scene.
+
+    Returns ``(DataArray, observation_date)`` or ``(None, None)``.
+    """
+    try:
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days_back)
+
+        items = _fetch_landsat_items(lat, lon, start_date, end_date, radius_m, max_items=10)
+        for item in items:
+            thermal_asset = item.assets.get(_LANDSAT_THERMAL_ASSET)
+            qa_asset = item.assets.get(_LANDSAT_QA_ASSET)
+            if thermal_asset is None:
+                continue
+
+            da = _read_windowed_xr(thermal_asset.href, lat, lon, radius_m)
+            if da is None:
+                continue
+
+            lst_c = da * _LANDSAT_SCALE + _LANDSAT_OFFSET - 273.15
+
+            if qa_asset is not None:
+                qa_da = _read_windowed_xr(qa_asset.href, lat, lon, radius_m)
+                if qa_da is not None and qa_da.shape == lst_c.shape:
+                    mask = _cloud_mask_landsat(np.nan_to_num(qa_da.values, nan=0.0))
+                    lst_c = lst_c.where(mask)
+
+            lst_c = lst_c.compute()
+            if int(lst_c.notnull().sum()) < 5:
+                continue
+            obs_date = item.datetime.date() if item.datetime else None
+            return lst_c, obs_date
+        return None, None
+    except Exception as exc:
+        _log.warning("get_lst_grid (STAC) failed: %s", exc)
+        return None, None
+
+
+def get_ndci_grid(
+    lat: float,
+    lon: float,
+    radius_m: float,
+    days_back: int = 45,
+) -> tuple:
+    """NDCI grid from the latest low-cloud Sentinel-2 scene.
+
+    NDCI = (B05 - B04) / (B05 + B04), masked via the SCL scene
+    classification (clouds, shadows, cirrus). Returns
+    ``(DataArray, observation_date)`` or ``(None, None)``.
+    """
+    try:
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days_back)
+
+        items = _fetch_sentinel2_items(lat, lon, start_date, end_date, radius_m)
+        for item in items[:3]:
+            b04_key, b05_key, scl_key = _s2_band_keys(item)
+            if b04_key is None:
+                continue
+            b04_asset = item.assets.get(b04_key)
+            b05_asset = item.assets.get(b05_key)
+            if b04_asset is None or b05_asset is None:
+                continue
+
+            # B05 (red edge) is the coarser 20 m band — use its grid as the base.
+            b05 = _read_windowed_xr(b05_asset.href, lat, lon, radius_m)
+            b04 = _read_windowed_xr(b04_asset.href, lat, lon, radius_m)
+            if b04 is None or b05 is None:
+                continue
+            if b04.shape != b05.shape:
+                b04 = b04.interp_like(b05, method="nearest")
+
+            ndci = (b05 - b04) / (b05 + b04)
+
+            if scl_key and scl_key in item.assets:
+                scl = _read_windowed_xr(item.assets[scl_key].href, lat, lon, radius_m)
+                if scl is not None:
+                    if scl.shape != b05.shape:
+                        scl = scl.interp_like(b05, method="nearest")
+                    valid = (scl != 3) & (scl != 8) & (scl != 9) & (scl != 10)
+                    ndci = ndci.where(valid)
+
+            ndci = ndci.where(np.isfinite(ndci)).compute()
+            if int(ndci.notnull().sum()) < 5:
+                continue
+            obs_date = item.datetime.date() if item.datetime else None
+            return ndci, obs_date
+        return None, None
+    except Exception as exc:
+        _log.warning("get_ndci_grid (STAC) failed: %s", exc)
+        return None, None
+
+
+def get_overlay_grids(
+    lake_name: str,
+    lat: float,
+    lon: float,
+    radius_m: Optional[float] = None,
+    days_back: int = 45,
+) -> SatelliteOverlayGrids:
+    """Fetch LST and NDCI grids for map overlays in one call."""
+    if radius_m is None:
+        radius_m = lake_radius_m(lake_name)
+    lst_grid, lst_date = get_lst_grid(lat, lon, radius_m, days_back=days_back)
+    ndci_grid, ndci_date = get_ndci_grid(lat, lon, radius_m, days_back=days_back)
+    error = None
+    if lst_grid is None and ndci_grid is None:
+        error = "No cloud-free Landsat or Sentinel-2 scenes found in window"
+    return SatelliteOverlayGrids(
+        lake_name=lake_name,
+        lst_grid=lst_grid,
+        lst_date=lst_date,
+        ndci_grid=ndci_grid,
+        ndci_date=ndci_date,
+        error_msg=error,
+    )

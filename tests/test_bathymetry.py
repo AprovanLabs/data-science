@@ -9,8 +9,12 @@ from unittest.mock import patch
 import pytest
 
 from onkia.bathymetry import (
+    _keep_basin,
     available_lakes,
     contour_color,
+    contours_to_profile,
+    depth_area_profile,
+    fetch_contours_from_dnr,
     load_contours,
     load_depth_profile,
     species_depth_zone,
@@ -28,7 +32,7 @@ def sample_geojson(tmp_path: Path) -> Dict:
                 "properties": {"depth_ft": 5.0, "lake": "Test Lake", "dow": "86000000"},
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[[-94.0, 45.3], [-94.0, 45.31], [-93.99, 45.31], [-93.99, 45.3], [-94.0, 45.3]]]],
+                    "coordinates": [[[-94.0, 45.3], [-94.0, 45.31], [-93.99, 45.31], [-93.99, 45.3], [-94.0, 45.3]]],
                 },
             },
             {
@@ -36,7 +40,7 @@ def sample_geojson(tmp_path: Path) -> Dict:
                 "properties": {"depth_ft": 15.0, "lake": "Test Lake", "dow": "86000000"},
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[[-94.0, 45.3], [-94.0, 45.305], [-93.995, 45.305], [-93.995, 45.3], [-94.0, 45.3]]]],
+                    "coordinates": [[[-94.0, 45.3], [-94.0, 45.305], [-93.995, 45.305], [-93.995, 45.3], [-94.0, 45.3]]],
                 },
             },
         ],
@@ -169,6 +173,103 @@ class TestSpeciesDepthZone:
             wind_direction="NW", water_temp_pref=walleye_pref,
         )
         assert zone is not None
+
+
+class TestKeepBasin:
+    def test_exact_match(self):
+        assert _keep_basin("77002301", "77002301")
+
+    def test_parent_dow_matches_sub_basins(self):
+        assert _keep_basin("86025201", "86025200")
+        assert _keep_basin("86025202", "86025200")
+
+    def test_specific_basin_does_not_match_siblings(self):
+        assert not _keep_basin("86025202", "86025201")
+
+    def test_other_lake_rejected(self):
+        assert not _keep_basin("86099901", "86025200")
+
+
+class TestFetchContoursFromDnr:
+    def _mock_response(self, features, exceeded=False):
+        from unittest.mock import MagicMock
+
+        resp = MagicMock()
+        resp.json.return_value = {
+            "type": "FeatureCollection",
+            "features": features,
+            "exceededTransferLimit": exceeded,
+        }
+        resp.raise_for_status.return_value = None
+        return resp
+
+    def _service_feature(self, dowlknum="77002300", abs_depth=10.0, closed=True):
+        coords = [[-94.79, 45.77], [-94.79, 45.78], [-94.78, 45.78], [-94.79, 45.77]]
+        if closed:
+            coords = [[-94.79, 45.77], [-94.79, 45.78], [-94.78, 45.78], [-94.79, 45.77]]
+        return {
+            "type": "Feature",
+            "properties": {"dowlknum": dowlknum, "abs_depth": abs_depth, "depth": -abs_depth},
+            "geometry": {"type": "LineString", "coordinates": coords},
+        }
+
+    def test_fetch_converts_closed_lines_to_polygons(self):
+        features = [self._service_feature(abs_depth=10.0), self._service_feature(abs_depth=20.0)]
+        with patch("requests.get", return_value=self._mock_response(features)) as mock_get:
+            result = fetch_contours_from_dnr("Big Swan", "77002300")
+        assert result is not None
+        assert len(result["features"]) == 2
+        feat = result["features"][0]
+        assert feat["properties"]["depth_ft"] == 10.0
+        assert feat["properties"]["lake"] == "Big Swan"
+        assert feat["geometry"]["type"] == "Polygon"
+        # Query must use the 6-digit DOW prefix for sub-basin matching.
+        params = mock_get.call_args.kwargs["params"]
+        assert "770023" in params["where"]
+
+    def test_fetch_filters_other_lakes(self):
+        features = [
+            self._service_feature(dowlknum="77002300", abs_depth=10.0),
+            # Different 6-digit DOW prefix = a different lake entirely.
+            self._service_feature(dowlknum="77009900", abs_depth=15.0),
+        ]
+        with patch("requests.get", return_value=self._mock_response(features)):
+            result = fetch_contours_from_dnr("Big Swan", "77002300")
+        assert result is not None
+        assert len(result["features"]) == 1
+
+    def test_fetch_returns_none_on_network_error(self):
+        with patch("requests.get", side_effect=ConnectionError("boom")):
+            assert fetch_contours_from_dnr("Big Swan", "77002300") is None
+
+    def test_fetch_returns_none_for_no_contours(self):
+        with patch("requests.get", return_value=self._mock_response([])):
+            assert fetch_contours_from_dnr("Big Swan", "77002300") is None
+
+
+class TestContoursToProfile:
+    def test_profile_from_contours(self, sample_geojson):
+        profile = contours_to_profile("Test Lake", "86000000", sample_geojson["data"])
+        assert profile is not None
+        assert profile["max_depth"] == 15.0
+        assert profile["min_depth"] == 5.0
+        assert profile["depths"] == [5, 15]
+        assert profile["contour_count"] == 2
+
+    def test_empty_contours(self):
+        assert contours_to_profile("X", "1", {"type": "FeatureCollection", "features": []}) is None
+
+
+class TestDepthAreaProfileWithPreloadedContours:
+    def test_preloaded_contours_used_without_disk(self, sample_geojson):
+        # No bathymetry_dir given — only the preloaded dict should be used.
+        profile = depth_area_profile("Some Other Lake", contours=sample_geojson["data"])
+        assert len(profile) == 2
+        depths = [d for d, _ in profile]
+        acres = [a for _, a in profile]
+        assert depths == [5.0, 15.0]
+        # Hypsographic: shallower contour encloses at least as much area.
+        assert acres[0] >= acres[1] > 0
 
 
 class TestAvailableLakes:

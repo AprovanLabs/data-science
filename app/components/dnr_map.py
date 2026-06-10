@@ -100,8 +100,10 @@ def add_depth_contours(
     lake_name: str,
     bathymetry_dir: Optional[Path] = None,
     show: bool = True,
+    geojson_data: Optional[Dict[str, Any]] = None,
 ) -> Optional[folium.FeatureGroup]:
-    geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
+    if geojson_data is None:
+        geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
     if geojson_data is None:
         return None
 
@@ -128,8 +130,10 @@ def add_species_zone_overlay(
     zone_color: str,
     bathymetry_dir: Optional[Path] = None,
     show: bool = True,
+    geojson_data: Optional[Dict[str, Any]] = None,
 ) -> Optional[folium.FeatureGroup]:
-    geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
+    if geojson_data is None:
+        geojson_data = load_contours_geojson(lake_name, bathymetry_dir)
     if geojson_data is None:
         return None
 
@@ -163,24 +167,43 @@ def add_species_zone_overlay(
 
 def build_lake_map(
     selected_lake: Optional[str] = None,
-    search_results: Optional[List[Dict]] = None,
     center: Tuple[float, float] = WRIGHT_COUNTY_CENTER,
     zoom: int = WRIGHT_COUNTY_ZOOM,
     show_bathymetry: bool = False,
     species_zones: Optional[List[Dict[str, Any]]] = None,
     bathymetry_dir: Optional[Path] = None,
     lake_coord_overrides: Optional[Dict[str, Tuple[float, float]]] = None,
+    extra_lakes: Optional[Dict[str, Tuple[float, float, str]]] = None,
+    contour_data: Optional[Dict[str, Any]] = None,
+    image_overlays: Optional[List[Dict[str, Any]]] = None,
 ) -> folium.Map:
+    """Build the lake map.
+
+    Args:
+        extra_lakes: Lakes added at runtime (e.g. from a DNR search), in the
+            same ``{name: (lat, lon, dow)}`` shape as ``WRIGHT_COUNTY_LAKES``.
+            They render with the same circle markers as roster lakes.
+        contour_data: Preloaded contour FeatureCollection for ``selected_lake``
+            (used instead of the on-disk Wright County files when given).
+        image_overlays: Georeferenced raster overlays, each a dict with keys
+            ``name``, ``image`` (RGBA numpy array), ``bounds``
+            (``[[south, west], [north, east]]``) and optional ``opacity``.
+    """
     m = folium.Map(
         location=center,
         zoom_start=zoom,
         tiles="OpenStreetMap",
     )
 
-    for name, (lat, lon, dow) in WRIGHT_COUNTY_LAKES.items():
+    all_lakes: Dict[str, Tuple[float, float, str]] = dict(WRIGHT_COUNTY_LAKES)
+    if extra_lakes:
+        all_lakes.update(extra_lakes)
+
+    for name, (lat, lon, dow) in all_lakes.items():
         if lake_coord_overrides and name in lake_coord_overrides:
             lat, lon = lake_coord_overrides[name]
         is_selected = name == selected_lake
+        county_note = "<br>Wright County, MN" if name in WRIGHT_COUNTY_LAKES else ""
         folium.CircleMarker(
             location=(lat, lon),
             radius=10 if is_selected else 7,
@@ -190,32 +213,13 @@ def build_lake_map(
             fill_opacity=0.9 if is_selected else 0.7,
             tooltip=f"{name} (DOW: {dow})",
             popup=folium.Popup(
-                f"<b>{name}</b><br>DOW: {dow}<br>Wright County, MN",
+                f"<b>{name}</b><br>DOW: {dow}{county_note}",
                 max_width=200,
             ),
         ).add_to(m)
 
-    if search_results:
-        for lake in search_results:
-            lake_name = lake.get("name", "")
-            point = lake.get("point", {})
-            coords = point.get("epsg:4326", [])
-            if len(coords) >= 2:
-                lon_val, lat_val = float(coords[0]), float(coords[1])
-                lake_id = lake.get("id", "")
-                if lake_name not in WRIGHT_COUNTY_LAKES:
-                    folium.Marker(
-                        location=(lat_val, lon_val),
-                        tooltip=f"{lake_name} (DOW: {lake_id})",
-                        popup=folium.Popup(
-                            f"<b>{lake_name}</b><br>DOW: {lake_id}<br>Wright County, MN",
-                            max_width=200,
-                        ),
-                        icon=folium.Icon(color="green", icon="info-sign"),
-                    ).add_to(m)
-
     if selected_lake and show_bathymetry:
-        add_depth_contours(m, selected_lake, bathymetry_dir, show=True)
+        add_depth_contours(m, selected_lake, bathymetry_dir, show=True, geojson_data=contour_data)
 
     if selected_lake and species_zones:
         for zone in species_zones:
@@ -227,9 +231,22 @@ def build_lake_map(
                 zone["color"],
                 bathymetry_dir,
                 show=True,
+                geojson_data=contour_data,
             )
 
-    if show_bathymetry or species_zones:
+    if image_overlays:
+        for overlay in image_overlays:
+            fg = folium.FeatureGroup(name=overlay["name"], show=True)
+            folium.raster_layers.ImageOverlay(
+                image=overlay["image"],
+                bounds=overlay["bounds"],
+                opacity=overlay.get("opacity", 1.0),
+                origin="upper",
+                zindex=2,
+            ).add_to(fg)
+            fg.add_to(m)
+
+    if show_bathymetry or species_zones or image_overlays:
         folium.LayerControl(collapsed=False).add_to(m)
 
     return m

@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 
 _BATHYMETRY_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "bathymetry"
 
+#: MN Geospatial Commons — Lake Bathymetric Contours (statewide, any DOW).
+CONTOUR_SERVICE_URL = (
+    "https://enterprise.gisdata.mn.gov/aghost/rest/services/"
+    "us_mn_state_dnr/water_lake_bathymetry/MapServer/0/query"
+)
+
 _DEPTH_CONTOUR_COLORS: Dict[int, str] = {
     0: "#b3d9ff",
     5: "#80caff",
@@ -129,6 +135,114 @@ def load_depth_profile(lake_name: str, bathymetry_dir: Optional[Path] = None) ->
         return None
 
 
+def _keep_basin(dowlknum: str, lake_dow: str) -> bool:
+    """Keep a contour feature for the requested lake.
+
+    Contours are stored per sub-basin (e.g. Clearwater 86025200 is split
+    into 86025201/86025202). A parent DOW (ending in "00") matches all of
+    its basins; a specific basin DOW matches only itself.
+    """
+    if dowlknum == lake_dow:
+        return True
+    return lake_dow.endswith("00") and dowlknum[:6] == lake_dow[:6]
+
+
+def _line_to_polygon(geometry: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert closed LineString rings to Polygons so overlays can be filled."""
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates", [])
+    if gtype == "LineString":
+        if len(coords) >= 4 and coords[0] == coords[-1]:
+            return {"type": "Polygon", "coordinates": [coords]}
+        return geometry
+    if gtype == "MultiLineString":
+        if all(len(part) >= 4 and part[0] == part[-1] for part in coords):
+            return {"type": "Polygon", "coordinates": coords}
+        return geometry
+    return geometry
+
+
+def fetch_contours_from_dnr(lake_name: str, dow: str, timeout: int = 60) -> Optional[Dict[str, Any]]:
+    """Fetch bathymetric contours for any MN lake from the DNR REST service.
+
+    Returns a GeoJSON FeatureCollection in the same shape as the
+    pre-processed ``data/bathymetry/*_contours.geojson`` files (properties:
+    ``depth_ft``, ``lake``, ``dow``), or None if the service is unavailable
+    or has no contours for this DOW.
+    """
+    import requests
+
+    dow = str(dow)
+    raw_features: List[Dict[str, Any]] = []
+    offset = 0
+    try:
+        while True:
+            resp = requests.get(
+                CONTOUR_SERVICE_URL,
+                params={
+                    "where": f"dowlknum LIKE '{dow[:6]}%'",
+                    "outFields": "depth,abs_depth,lake_name,dowlknum",
+                    "outSR": "4326",
+                    "f": "geojson",
+                    "resultOffset": str(offset),
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            page = payload.get("features", [])
+            raw_features.extend(page)
+            if not payload.get("properties", {}).get("exceededTransferLimit") and not payload.get(
+                "exceededTransferLimit"
+            ):
+                break
+            offset += len(page)
+    except Exception as exc:
+        logger.warning("DNR contour fetch failed for %s (DOW %s): %s", lake_name, dow, exc)
+        return None
+
+    features: List[Dict[str, Any]] = []
+    for feature in raw_features:
+        props = feature.get("properties", {})
+        dowlknum = str(props.get("dowlknum", ""))
+        if not _keep_basin(dowlknum, dow):
+            continue
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "depth_ft": float(props.get("abs_depth", 0) or 0),
+                    "lake": lake_name,
+                    "dow": dowlknum,
+                },
+                "geometry": _line_to_polygon(feature.get("geometry") or {}),
+            }
+        )
+    if not features:
+        logger.info("No DNR contours found for %s (DOW %s)", lake_name, dow)
+        return None
+    return {"type": "FeatureCollection", "features": features}
+
+
+def contours_to_profile(lake_name: str, dow: str, contours: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Synthesize a depth profile (same shape as ``*_profile.json``) from contours."""
+    depth_values = [
+        f.get("properties", {}).get("depth_ft")
+        for f in contours.get("features", [])
+        if f.get("properties", {}).get("depth_ft") is not None
+    ]
+    if not depth_values:
+        return None
+    return {
+        "lake": lake_name,
+        "dow": str(dow),
+        "max_depth": max(depth_values),
+        "min_depth": min(depth_values),
+        "contour_count": len(depth_values),
+        "depths": sorted(set(int(d) for d in depth_values)),
+    }
+
+
 _SQ_METERS_PER_ACRE = 4046.8564224
 _METERS_PER_DEGREE = 111320.0
 
@@ -169,15 +283,20 @@ def _feature_rings(geometry: Dict[str, Any]) -> List[List[List[float]]]:
 
 
 def depth_area_profile(
-    lake_name: str, bathymetry_dir: Optional[Path] = None
+    lake_name: str,
+    bathymetry_dir: Optional[Path] = None,
+    contours: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[float, float]]:
     """Compute the enclosed water surface area (acres) at each contour depth.
 
     Returns a list of ``(depth_ft, acres)`` tuples sorted by depth, suitable
     for plotting a hypsographic (area vs. depth) curve. Area at each depth is
-    the sum of all closed contour rings at that depth.
+    the sum of all closed contour rings at that depth. ``contours`` may be a
+    preloaded FeatureCollection (e.g. fetched at runtime via
+    :func:`fetch_contours_from_dnr`); otherwise contours are loaded from disk.
     """
-    contours = load_contours(lake_name, bathymetry_dir)
+    if contours is None:
+        contours = load_contours(lake_name, bathymetry_dir)
     if not contours:
         return []
     areas: Dict[float, float] = {}

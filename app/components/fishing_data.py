@@ -299,6 +299,14 @@ def _search_lake_cached(name: str, county_id: Optional[int] = 86) -> Optional[di
     return lake.model_dump(by_alias=True) if lake else None
 
 
+@st.cache_data(show_spinner="Fetching bathymetry contours from DNR...")
+def _fetch_contours_cached(dow: str, lake_name: str) -> Optional[dict]:
+    """Runtime contour fetch for lakes without pre-processed bathymetry files."""
+    from onkia.bathymetry import fetch_contours_from_dnr
+
+    return fetch_contours_from_dnr(lake_name, dow)
+
+
 @st.cache_data(show_spinner="Loading survey data from DNR...")
 def _load_survey(lake_id: str) -> Optional[dict]:
     try:

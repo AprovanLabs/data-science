@@ -36,6 +36,7 @@ from components.fishing_data import (
     _build_depth_profile,
     _build_water_temp_year_chart,
     _build_cloud_cover_year_chart,
+    _fetch_contours_cached,
     _search_lake_cached,
     _load_survey,
     _get_weather_cached,
@@ -45,8 +46,8 @@ from components.fishing_data import (
 )
 from onkia.analysis import LakeAnalysis, TrendStatus, analyze_lake, parse_stocking_events  # noqa: F401
 from onkia.bathymetry import (  # noqa: F401
-    available_lakes as bathymetry_available_lakes,
     contour_color,
+    contours_to_profile,
     depth_area_profile,
     load_contours,
     load_depth_profile,
@@ -70,6 +71,8 @@ from onkia.satellite_lst_stac import (  # noqa: F401
     get_lst_history,
     get_lst_heatmap,
     get_ndci,
+    get_overlay_grids,
+    grid_bounds,
     lake_radius_m,
 )
 from onkia.weather import get_weather_for_window, wind_direction_label  # noqa: F401
@@ -96,12 +99,21 @@ def _get_heatmap_cached(lat: float, lon: float, radius_m: float):
     return get_lst_heatmap(lat, lon, radius_m)
 
 
+@st.cache_data(ttl=3600, show_spinner="Fetching satellite overlay imagery...")
+def _get_overlay_grids_cached(lake_name: str, lat: float, lon: float, radius_m: float):
+    return get_overlay_grids(lake_name, lat, lon, radius_m=radius_m)
+
+
 if "selected_lake_name" not in st.session_state:
     st.session_state["selected_lake_name"] = None
 if "selected_lake_id" not in st.session_state:
     st.session_state["selected_lake_id"] = None
 if "dnr_search_results" not in st.session_state:
     st.session_state["dnr_search_results"] = []
+if "custom_lakes" not in st.session_state:
+    # Lakes added via DNR search, in the same {name: (lat, lon, dow)} shape
+    # as WRIGHT_COUNTY_LAKES so they behave identically to roster lakes.
+    st.session_state["custom_lakes"] = {}
 
 with st.sidebar:
     st.markdown("**Fishing Intelligence**")
@@ -111,26 +123,6 @@ with st.sidebar:
     if st.button("Refresh Data", key="btn_refresh_data", use_container_width=True):
         st.cache_data.clear()
         st.success("Cache cleared -- data will reload on next action.")
-
-    st.divider()
-    st.markdown("**Map Overlays**")
-    show_bathymetry = st.checkbox("Show Depth Contours", value=False, key="chk_bathymetry")
-    show_species_zones = st.checkbox("Show Species Zones", value=False, key="chk_species_zones")
-
-    if show_species_zones:
-        zone_species = st.multiselect(
-            "Species to highlight",
-            options=list(TARGET_SPECIES.keys()),
-            default=list(TARGET_SPECIES.keys()),
-            key="sel_zone_species",
-        )
-    else:
-        zone_species = []
-
-    wind_dir = st.selectbox("Wind Direction", options=["N", "NE", "E", "SE", "S", "SW", "W", "NW"], key="sel_wind_dir")
-
-
-
 
 @st.cache_data(show_spinner="Computing trend analysis...")
 def _compute_trend_analysis(lake_id: str, lake_name: str) -> Optional[dict]:
@@ -256,19 +248,43 @@ def _build_depth_temp_chart(
     return fig
 
 
+def _parse_optimum_band(optimum: str) -> Optional[Tuple[float, float]]:
+    """Parse a WATER_TEMP_PREFERENCES optimum string like "64-70" into (lo, hi)."""
+    try:
+        if "-" in optimum:
+            lo, hi = (float(x) for x in optimum.split("-"))
+        else:
+            lo = hi = float(optimum)
+        return lo, hi
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _grid_to_rgba(values: np.ndarray, vmin: float, vmax: float, cmap_name: str, alpha: float) -> np.ndarray:
+    """Map a 2-D grid to an RGBA image; NaN pixels become fully transparent."""
+    norm = (values - vmin) / max(vmax - vmin, 1e-9)
+    norm = np.clip(np.nan_to_num(norm, nan=0.0), 0.0, 1.0)
+    rgba = plt.get_cmap(cmap_name)(norm)
+    rgba[..., 3] = np.where(np.isfinite(values), alpha, 0.0)
+    return rgba
+
+
+def _mask_to_rgba(mask: np.ndarray, hex_color: str, alpha: float) -> np.ndarray:
+    """Render a boolean mask as a single-colour RGBA image (transparent elsewhere)."""
+    from matplotlib.colors import to_rgba
+
+    r, g, b, _a = to_rgba(hex_color)
+    rgba = np.zeros(mask.shape + (4,), dtype=float)
+    rgba[..., 0] = r
+    rgba[..., 1] = g
+    rgba[..., 2] = b
+    rgba[..., 3] = np.where(mask, alpha, 0.0)
+    return rgba
+
+
 st.title("Wright County Fishing Intelligence")
 
-st.markdown("**Select a Lake**")
-lake_names = sorted(WRIGHT_COUNTY_LAKES.keys())
-cols = st.columns(3)
-for i, name in enumerate(lake_names):
-    with cols[i % 3]:
-        is_sel = name == st.session_state["selected_lake_name"]
-        label = f"{'>> ' if is_sel else ''}{name}"
-        if st.button(label, key=f"pick_{name}", use_container_width=True):
-            st.session_state["selected_lake_name"] = name
-            st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
-
+# --- DNR lake search (found lakes are added to the roster below) ---
 _ALL_MN = "All Minnesota"
 _county_options = [_ALL_MN] + sorted(MN_COUNTIES.values())
 _county_name_to_id = {v: k for k, v in MN_COUNTIES.items()}
@@ -303,15 +319,25 @@ if do_search and search_query:
     else:
         if result:
             st.session_state["dnr_search_results"] = [result]
+            _rname = result["name"]
+            _rid = str(result["id"])
+            _coords = result.get("point", {}).get("epsg:4326", [])
+            if _rname not in WRIGHT_COUNTY_LAKES and len(_coords) >= 2:
+                # Same shape as WRIGHT_COUNTY_LAKES so searched lakes behave
+                # exactly like roster lakes (markers, buttons, contours).
+                st.session_state["custom_lakes"][_rname] = (
+                    float(_coords[1]),
+                    float(_coords[0]),
+                    _rid,
+                )
+            st.session_state["selected_lake_name"] = _rname
+            st.session_state["selected_lake_id"] = _rid
             _county = result.get("county", "")
             _county_note = f", {_county} County" if _county else ""
-            st.success(f"Found: **{result['name']}** (DOW: {result['id']}{_county_note})")
-            if _county and _county != "Wright":
-                st.caption(
-                    "This lake is outside Wright County -- click its green marker "
-                    "on the map to select it. DNR survey data will load, but "
-                    "bathymetry contours are only available for Wright County lakes."
-                )
+            st.success(
+                f"Found and selected: **{_rname}** (DOW: {_rid}{_county_note}). "
+                "It now appears in the lake roster below."
+            )
         else:
             st.session_state["dnr_search_results"] = []
             _scope = "Minnesota" if search_county == _ALL_MN else f"{search_county} County"
@@ -320,20 +346,57 @@ if do_search and search_query:
                 "Try a different county or 'All Minnesota'."
             )
 
+st.markdown("**Select a Lake**")
+# Wright County roster plus any lakes added via DNR search -- all rendered
+# and selectable identically.
+_all_lakes: Dict[str, Tuple[float, float, str]] = {
+    **WRIGHT_COUNTY_LAKES,
+    **st.session_state["custom_lakes"],
+}
+lake_names = sorted(_all_lakes.keys())
+cols = st.columns(3)
+for i, name in enumerate(lake_names):
+    with cols[i % 3]:
+        is_sel = name == st.session_state["selected_lake_name"]
+        label = f"{'>> ' if is_sel else ''}{name}"
+        if st.button(label, key=f"pick_{name}", use_container_width=True):
+            st.session_state["selected_lake_name"] = name
+            st.session_state["selected_lake_id"] = _all_lakes[name][2]
+
 st.divider()
+
+# --- Map overlay controls (top of the app) ---
+st.markdown("**Map Overlays**")
+ctl_layers, ctl_sat, ctl_species = st.columns([1, 1.2, 1.8])
+with ctl_layers:
+    show_bathymetry = st.checkbox("Depth contours", value=False, key="chk_bathymetry")
+    show_species_zones = st.checkbox("Species depth zones", value=False, key="chk_species_zones")
+with ctl_sat:
+    show_temp_overlay = st.checkbox("Satellite surface temp", value=False, key="chk_sat_temp")
+    show_veg_overlay = st.checkbox("Vegetation / algae (NDCI)", value=False, key="chk_sat_veg")
+    show_hotspots = st.checkbox("Species hotspots (temp + weeds)", value=False, key="chk_hotspots")
+with ctl_species:
+    zone_species = st.multiselect(
+        "Species to highlight",
+        options=list(TARGET_SPECIES.keys()),
+        default=list(TARGET_SPECIES.keys()),
+        key="sel_zone_species",
+        help="Used by the species depth zone and species hotspot overlays.",
+    )
 
 st.subheader("Lake Map")
 
-lake_name_for_zones = st.session_state["selected_lake_name"]
+_selected_name = st.session_state["selected_lake_name"]
+_selected_id = st.session_state["selected_lake_id"]
+
 species_zones = []
-if lake_name_for_zones and show_species_zones and zone_species:
+if _selected_name and show_species_zones and zone_species:
     for sp in zone_species:
         pref = next((p for p in WATER_TEMP_PREFERENCES if p.species == sp), None)
         zone = species_depth_zone(
             species=sp,
             water_temp_f=65.0,
             time_of_day="evening",
-            wind_direction=wind_dir,
             water_temp_pref=pref,
         )
         if zone:
@@ -343,29 +406,142 @@ if lake_name_for_zones and show_species_zones and zone_species:
                 "color": SPECIES_COLORS.get(sp, "#457b9d"),
             })
 
+# Bathymetry contours: pre-processed Wright County files when available,
+# otherwise fetched on demand from the DNR ArcGIS service (works for any
+# MN lake DOW, so searched lakes get contours too).
+_contour_data = None
+if _selected_name:
+    _contour_data = load_contours(_selected_name)
+    if _contour_data is None and _selected_id:
+        _contour_data = _fetch_contours_cached(str(_selected_id), _selected_name)
+
+# --- Satellite raster overlays (LST / NDCI / species hotspots) ---
+_image_overlays: List[Dict] = []
+_overlay_notes: List[str] = []
+if _selected_name and _selected_name in _all_lakes and (
+    show_temp_overlay or show_veg_overlay or show_hotspots
+):
+    _sel_lat, _sel_lon = _all_lakes[_selected_name][0], _all_lakes[_selected_name][1]
+    _sat_grids = _get_overlay_grids_cached(
+        _selected_name, _sel_lat, _sel_lon, lake_radius_m(_selected_name)
+    )
+    _lst_da = _sat_grids.lst_grid
+    _ndci_da = _sat_grids.ndci_grid
+
+    if show_temp_overlay:
+        if _lst_da is not None:
+            _temp_f_vals = _lst_da.values * 9.0 / 5.0 + 32.0
+            _vmin = float(np.nanpercentile(_temp_f_vals, 5))
+            _vmax = float(np.nanpercentile(_temp_f_vals, 95))
+            if _vmax - _vmin < 2.0:
+                _vmin, _vmax = _vmin - 1.0, _vmax + 1.0
+            _image_overlays.append({
+                "name": "Satellite Surface Temp",
+                "image": _grid_to_rgba(_temp_f_vals, _vmin, _vmax, "turbo", alpha=0.65),
+                "bounds": grid_bounds(_lst_da),
+            })
+            _overlay_notes.append(
+                f"Surface temp overlay (Landsat, {_sat_grids.lst_date}): "
+                f"{_vmin:.0f}-{_vmax:.0f} F, blue = cooler, red = warmer."
+            )
+        else:
+            _overlay_notes.append(
+                "Surface temp overlay unavailable -- no recent cloud-free Landsat scene."
+            )
+
+    if show_veg_overlay:
+        if _ndci_da is not None:
+            _image_overlays.append({
+                "name": "Vegetation / Algae (NDCI)",
+                "image": _grid_to_rgba(_ndci_da.values, -0.1, 0.3, "YlGn", alpha=0.6),
+                "bounds": grid_bounds(_ndci_da),
+            })
+            _overlay_notes.append(
+                f"NDCI overlay (Sentinel-2, {_sat_grids.ndci_date}): "
+                "darker green = denser vegetation / algae (weed proxy)."
+            )
+        else:
+            _overlay_notes.append(
+                "Vegetation overlay unavailable -- no recent cloud-free Sentinel-2 scene."
+            )
+
+    if show_hotspots:
+        if _lst_da is not None and zone_species:
+            _temp_f_grid = _lst_da.values * 9.0 / 5.0 + 32.0
+            _ndci_on_lst = None
+            if _ndci_da is not None:
+                try:
+                    _ndci_on_lst = _ndci_da.interp_like(_lst_da, method="nearest").values
+                except Exception:
+                    _ndci_on_lst = None
+            _hotspot_count = 0
+            for sp in zone_species:
+                pref = next((p for p in WATER_TEMP_PREFERENCES if p.species == sp), None)
+                band = _parse_optimum_band(pref.optimum) if pref else None
+                if band is None:
+                    continue
+                mask = np.isfinite(_temp_f_grid) & (_temp_f_grid >= band[0]) & (_temp_f_grid <= band[1])
+                label = f"{sp} hotspot ({band[0]:.0f}-{band[1]:.0f} F"
+                if _ndci_on_lst is not None:
+                    mask &= np.nan_to_num(_ndci_on_lst, nan=-1.0) > 0.0
+                    label += " + weeds"
+                label += ")"
+                if not mask.any():
+                    continue
+                _hotspot_count += 1
+                _image_overlays.append({
+                    "name": label,
+                    "image": _mask_to_rgba(mask, SPECIES_COLORS.get(sp, "#457b9d"), alpha=0.55),
+                    "bounds": grid_bounds(_lst_da),
+                })
+            if _ndci_on_lst is None:
+                _overlay_notes.append(
+                    "Species hotspots use surface temperature only -- no Sentinel-2 "
+                    "vegetation data available to correlate weed cover."
+                )
+            elif _hotspot_count:
+                _overlay_notes.append(
+                    "Species hotspots: pixels where satellite surface temp falls in the "
+                    "species' optimum band AND NDCI indicates vegetation/algae (weed cover)."
+                )
+            else:
+                _overlay_notes.append(
+                    "No species hotspots found -- surface temp is outside the optimum "
+                    "band (or no weed cover) for the selected species."
+                )
+        elif _lst_da is None:
+            _overlay_notes.append(
+                "Species hotspots unavailable -- no recent cloud-free Landsat scene."
+            )
+
+# Coordinate overrides for roster lakes found via search (live DNR centroids).
 _dnr_coord_overrides = {}
-_map_view_kwargs = {}
 for _r in st.session_state["dnr_search_results"]:
     _rname = _r.get("name", "")
     _coords = _r.get("point", {}).get("epsg:4326", [])
-    if len(_coords) < 2:
-        continue
-    if _rname in WRIGHT_COUNTY_LAKES:
+    if len(_coords) >= 2 and _rname in WRIGHT_COUNTY_LAKES:
         _dnr_coord_overrides[_rname] = (float(_coords[1]), float(_coords[0]))
-    else:
-        # Search result outside the Wright County roster (possibly another
-        # county entirely): center the map on it so its marker is visible.
-        _map_view_kwargs = {"center": (float(_coords[1]), float(_coords[0])), "zoom": 12}
+
+# Center the map on lakes outside the default Wright County view.
+_map_view_kwargs = {}
+if _selected_name in st.session_state["custom_lakes"]:
+    _c_lat, _c_lon, _ = st.session_state["custom_lakes"][_selected_name]
+    _map_view_kwargs = {"center": (_c_lat, _c_lon), "zoom": 12}
 
 fmap = build_lake_map(
-    selected_lake=st.session_state["selected_lake_name"],
-    search_results=st.session_state["dnr_search_results"],
+    selected_lake=_selected_name,
     show_bathymetry=show_bathymetry,
     species_zones=species_zones if species_zones else None,
     lake_coord_overrides=_dnr_coord_overrides if _dnr_coord_overrides else None,
+    extra_lakes=st.session_state["custom_lakes"] or None,
+    contour_data=_contour_data,
+    image_overlays=_image_overlays or None,
     **_map_view_kwargs,
 )
 map_data = st_folium(fmap, width="100%", height=400, returned_objects=["last_object_clicked"])
+
+for _note in _overlay_notes:
+    st.caption(_note)
 
 if map_data and map_data.get("last_object_clicked"):
     clicked = map_data["last_object_clicked"]
@@ -373,22 +549,13 @@ if map_data and map_data.get("last_object_clicked"):
     clicked_lng = clicked.get("lng")
     if clicked_lat is not None:
         best_name, best_dist = None, float("inf")
-        for name, (lat, lon, dow) in WRIGHT_COUNTY_LAKES.items():
+        for name, (lat, lon, dow) in _all_lakes.items():
             dist = (lat - clicked_lat) ** 2 + (lon - clicked_lng) ** 2
             if dist < best_dist:
                 best_dist, best_name = dist, name
-        for r in st.session_state["dnr_search_results"]:
-            coords = r.get("point", {}).get("epsg:4326", [])
-            if len(coords) >= 2:
-                dist = (float(coords[1]) - clicked_lat) ** 2 + (float(coords[0]) - clicked_lng) ** 2
-                if dist < best_dist:
-                    best_dist = dist
-                    best_name = r["name"]
-                    st.session_state["selected_lake_id"] = r["id"]
         if best_name and best_dist < 0.001:
-            if best_name in WRIGHT_COUNTY_LAKES:
-                st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[best_name][2]
             st.session_state["selected_lake_name"] = best_name
+            st.session_state["selected_lake_id"] = _all_lakes[best_name][2]
 
 lake_name = st.session_state["selected_lake_name"]
 lake_id = st.session_state["selected_lake_id"]
@@ -418,19 +585,11 @@ st.divider()
 
 st.subheader("Evening Weather Conditions")
 
-lake_coords = WRIGHT_COUNTY_LAKES.get(lake_name)
+lake_coords = _all_lakes.get(lake_name)
 if lake_coords:
     lat, lon = lake_coords[0], lake_coords[1]
 else:
-    # Lake selected from a DNR search result (possibly outside Wright County):
-    # use its actual coordinates rather than the county center.
     lat, lon = 45.17, -94.05
-    for _r in st.session_state["dnr_search_results"]:
-        if _r.get("name") == lake_name:
-            _coords = _r.get("point", {}).get("epsg:4326", [])
-            if len(_coords) >= 2:
-                lat, lon = float(_coords[1]), float(_coords[0])
-            break
 
 weather = _get_weather_cached(lat, lon, selected_date.isoformat())
 
@@ -594,17 +753,17 @@ elif not _usgs_lakes:
 # --- Bathymetry Contours ---
 st.subheader("Bathymetry & Depth Contours")
 
-_bathy_lakes = bathymetry_available_lakes()
-_has_bathy = any(l.lower() == lake_name.lower() for l in _bathy_lakes)
+# _contour_data was resolved above (local file or on-demand DNR fetch).
+contour_data = _contour_data
 
-if _has_bathy:
-    contour_data = load_contours(lake_name)
-    profile_data = load_depth_profile(lake_name)
+if contour_data:
+    profile_data = load_depth_profile(lake_name) or contours_to_profile(
+        lake_name, lake_id, contour_data
+    )
 
-    if contour_data:
-        num_contours = len(contour_data.get("features", []))
-        st.success(f"Depth contours available: **{num_contours}** contour lines for {lake_name}")
-        st.caption("Toggle 'Show Depth Contours' in the sidebar to visualize on the map.")
+    num_contours = len(contour_data.get("features", []))
+    st.success(f"Depth contours available: **{num_contours}** contour lines for {lake_name}")
+    st.caption("Toggle 'Depth contours' above the map to visualize them.")
 
     if profile_data:
         with st.expander("Depth Profile"):
@@ -613,7 +772,7 @@ if _has_bathy:
             if depths:
                 st.markdown(f"- **Contour Depths:** {', '.join(str(int(d)) for d in depths)} ft")
 
-                area_profile = depth_area_profile(lake_name)
+                area_profile = depth_area_profile(lake_name, contours=contour_data)
                 if area_profile:
                     profile_depths = [d for d, _ in area_profile]
                     profile_acres = [a for _, a in area_profile]
@@ -652,10 +811,10 @@ if _has_bathy:
     else:
         st.info("Depth profile data not available for this lake.")
 else:
-    if _bathy_lakes:
-        st.info(f"No bathymetry data for **{lake_name}**. Available: {', '.join(_bathy_lakes)}")
-    else:
-        st.info("Depth contour data is not available. No bathymetry has been loaded for Wright County lakes.")
+    st.info(
+        f"No DNR bathymetry contours available for **{lake_name}** -- the lake "
+        "may not have been surveyed, or the DNR contour service is unavailable."
+    )
 
 if species_zones:
     st.markdown("**Species Depth Zone Summary** (depth contour overlay):")
@@ -680,6 +839,14 @@ st.divider()
 st.subheader("Satellite Surface Temperature")
 
 _lake_acres = LAKE_ACRES.get(lake_name, 0.0)
+if not _lake_acres:
+    # Searched lakes are not in the Wright County table -- use the DNR
+    # survey morphology so they get the same satellite treatment.
+    try:
+        _sv_for_acres = _load_survey(lake_id)
+        _lake_acres = float(_sv_for_acres.get("area_acres") or 0.0) if _sv_for_acres else 0.0
+    except Exception:
+        _lake_acres = 0.0
 _sat_lst = None
 
 if _lake_acres >= LST_USEFUL_THRESHOLD_ACRES:
@@ -737,7 +904,7 @@ if _lake_acres >= LST_USEFUL_THRESHOLD_ACRES:
 
         if _lake_acres >= HEATMAP_THRESHOLD_ACRES:
             with st.expander("Spatial Temperature Map"):
-                _heatmap_png = _get_heatmap_cached(lat, lon, lake_radius_m(lake_name))
+                _heatmap_png = _get_heatmap_cached(lat, lon, lake_radius_m(lake_name, acres=_lake_acres or None))
                 if _heatmap_png:
                     st.image(
                         _heatmap_png,
@@ -1064,8 +1231,8 @@ st.subheader("Cross-Lake Species Trends")
 
 selected_lakes = st.multiselect(
     "Include lakes",
-    options=sorted(WRIGHT_COUNTY_LAKES.keys()),
-    default=[lake_name] if lake_name in WRIGHT_COUNTY_LAKES else ["Clearwater"],
+    options=sorted(_all_lakes.keys()),
+    default=[lake_name] if lake_name in _all_lakes else ["Clearwater"],
 )
 selected_species = st.multiselect(
     "Filter species",
@@ -1077,7 +1244,7 @@ if selected_lakes and selected_species:
     all_records: List[Dict] = []
     load_errors = []
     for name in selected_lakes:
-        lid = WRIGHT_COUNTY_LAKES[name][2]
+        lid = _all_lakes[name][2]
         try:
             records = _load_survey_for_lake(lid, name)
             if records:
