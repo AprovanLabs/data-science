@@ -1,5 +1,7 @@
 # Used by Streamlit Community Cloud; editing this file forces a full
 # environment rebuild and interpreter restart on deploy.
+# (app/app.py also evicts stale repo modules after hot-reload deploys,
+# so manual rebuilds should no longer be needed.)
 streamlit>=1.36
 streamlit-folium>=0.15
 folium>=0.14
