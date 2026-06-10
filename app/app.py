@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
 import streamlit as st
@@ -28,45 +27,25 @@ for _p in (_src, _app_dir):
         sys.path.insert(0, str(_p))
 
 
-@st.cache_resource(show_spinner=False)
-def _local_module_mtime_state() -> dict:
-    """Per-interpreter record of repo module file mtimes (survives reruns)."""
-    return {"created": time.time(), "mtimes": {}}
-
-
-def _purge_stale_local_modules() -> None:
-    """Evict repo modules from sys.modules when their source files change.
+def _purge_local_modules() -> None:
+    """Evict all repo-local modules from sys.modules on every run.
 
     Streamlit Cloud pulls new commits into a *running* interpreter: page
-    scripts are re-executed and modules under the main-script folder are
-    re-watched, but modules under src/ (onkia) stay cached in sys.modules,
-    causing ImportErrors for newly added names after every deploy. Detect
-    files modified since they were loaded and drop ALL repo-local modules
-    (src/ and app/) so the next page run re-imports fresh code.
+    scripts are re-executed from disk, but modules under src/ (onkia) and
+    app/components stay cached in sys.modules, causing ImportErrors for
+    newly added names after every deploy. Unconditionally dropping them
+    here forces each run to re-import fresh code straight from disk.
+    (They are small pure-Python modules, and st.cache_data results are
+    keyed by code hash, so caches survive the re-import.)
     """
-    state = _local_module_mtime_state()
     root = str(_repo_root) + os.sep
-    local_modules = {
-        name: getattr(mod, "__file__", None)
-        for name, mod in list(sys.modules.items())
-        if getattr(mod, "__file__", None) and str(getattr(mod, "__file__", "")).startswith(root)
-    }
-    stale = False
-    for name, fpath in local_modules.items():
-        try:
-            mtime = os.path.getmtime(fpath)
-        except OSError:
-            continue
-        prev = state["mtimes"].get(name)
-        if (prev is not None and mtime > prev) or (prev is None and mtime > state["created"]):
-            stale = True
-        state["mtimes"][name] = mtime
-    if stale:
-        for name in local_modules:
+    for name, mod in list(sys.modules.items()):
+        fpath = getattr(mod, "__file__", None)
+        if fpath and str(fpath).startswith(root):
             sys.modules.pop(name, None)
 
 
-_purge_stale_local_modules()
+_purge_local_modules()
 
 st.set_page_config(
     page_title="AprovanLabs Data Science",

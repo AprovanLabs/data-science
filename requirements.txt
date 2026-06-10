@@ -1,7 +1,8 @@
 # Used by Streamlit Community Cloud; editing this file forces a full
 # environment rebuild and interpreter restart on deploy.
-# (app/app.py also evicts stale repo modules after hot-reload deploys,
-# so manual rebuilds should no longer be needed.)
+# (app/app.py now unconditionally evicts repo modules every run, so
+# hot-reload deploys can never serve stale src/ code again.)
+# Rebuild marker: 2026-06-09 stale-module guard v2.
 streamlit>=1.36
 streamlit-folium>=0.15
 folium>=0.14
