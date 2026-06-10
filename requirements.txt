@@ -1,3 +1,5 @@
+# Used by Streamlit Community Cloud; editing this file forces a full
+# environment rebuild and interpreter restart on deploy.
 streamlit>=1.36
 streamlit-folium>=0.15
 folium>=0.14
