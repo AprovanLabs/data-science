@@ -40,6 +40,11 @@ def _purge_local_modules() -> None:
     """
     root = str(_repo_root) + os.sep
     for name, mod in list(sys.modules.items()):
+        # Streamlit registers the running script itself as __main__ (its
+        # __file__ is this repo's app.py); evicting it breaks inspect-based
+        # introspection inside Streamlit (KeyError: '__main__').
+        if name == "__main__":
+            continue
         fpath = getattr(mod, "__file__", None)
         if fpath and str(fpath).startswith(root):
             sys.modules.pop(name, None)
