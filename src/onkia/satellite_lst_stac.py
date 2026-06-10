@@ -837,6 +837,12 @@ def get_lst_grid(
 ) -> tuple:
     """Cloud-masked surface temperature grid (°C) from the latest Landsat scene.
 
+    Lake bounding boxes can straddle two Landsat path/rows, so the most
+    recent scene may only clip a corner of the window and miss the lake
+    entirely. Scenes are therefore screened: the first one whose grid
+    covers the lake centroid with enough valid pixels wins; otherwise the
+    best-covered candidate seen is returned.
+
     Returns ``(DataArray, observation_date)`` or ``(None, None)``.
     """
     try:
@@ -844,6 +850,9 @@ def get_lst_grid(
         start_date = end_date - timedelta(days=days_back)
 
         items = _fetch_landsat_items(lat, lon, start_date, end_date, radius_m, max_items=10)
+        best_score = 0.0
+        best_grid = None
+        best_date = None
         for item in items:
             thermal_asset = item.assets.get(_LANDSAT_THERMAL_ASSET)
             qa_asset = item.assets.get(_LANDSAT_QA_ASSET)
@@ -863,11 +872,30 @@ def get_lst_grid(
                     lst_c = lst_c.where(mask)
 
             lst_c = lst_c.compute()
-            if int(lst_c.notnull().sum()) < 5:
+            valid = int(lst_c.notnull().sum())
+            if valid < 5:
                 continue
             obs_date = item.datetime.date() if item.datetime else None
-            return lst_c, obs_date
-        return None, None
+
+            lats = lst_c["y"].values
+            lons = lst_c["x"].values
+            covers_lake = (
+                float(lats.min()) <= lat <= float(lats.max())
+                and float(lons.min()) <= lon <= float(lons.max())
+            )
+            valid_frac = valid / max(lst_c.size, 1)
+
+            # Newest scene that clearly covers the lake wins outright.
+            if covers_lake and valid_frac >= 0.3:
+                return lst_c, obs_date
+
+            score = valid_frac if covers_lake else valid_frac * 0.1
+            if score > best_score:
+                best_score = score
+                best_grid = lst_c
+                best_date = obs_date
+
+        return best_grid, best_date
     except Exception as exc:
         _log.warning("get_lst_grid (STAC) failed: %s", exc)
         return None, None

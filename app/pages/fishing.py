@@ -248,13 +248,21 @@ def _build_depth_temp_chart(
     return fig
 
 
-def _parse_optimum_band(optimum: str) -> Optional[Tuple[float, float]]:
-    """Parse a WATER_TEMP_PREFERENCES optimum string like "64-70" into (lo, hi)."""
+def _parse_optimum_band(optimum: str, min_width: float = 6.0) -> Optional[Tuple[float, float]]:
+    """Parse a WATER_TEMP_PREFERENCES optimum string like "64-70" into (lo, hi).
+
+    Single-value optimums (e.g. Northern Pike "65") are widened to
+    ``min_width`` degrees so the hotspot mask isn't a zero-width band that
+    no satellite pixel can ever match.
+    """
     try:
         if "-" in optimum:
             lo, hi = (float(x) for x in optimum.split("-"))
         else:
             lo = hi = float(optimum)
+        if hi - lo < min_width:
+            mid = (lo + hi) / 2.0
+            lo, hi = mid - min_width / 2.0, mid + min_width / 2.0
         return lo, hi
     except (ValueError, AttributeError, TypeError):
         return None
