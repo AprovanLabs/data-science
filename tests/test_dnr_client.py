@@ -164,21 +164,30 @@ class TestGetLake:
         assert service.get_lake("Nonexistent") is None
 
     @patch("onkia.dnr_client.requests.get")
-    def test_falls_back_to_statewide_search(self, mock_get, service):
-        """Lakes outside the requested county are found via a statewide retry."""
-        empty_response = MagicMock()
-        empty_response.json.return_value = {"results": None, "status": "ERROR"}
-        statewide_response = MagicMock()
-        statewide_response.json.return_value = {"results": [MOCK_LAKE_RAW]}
-        mock_get.side_effect = [empty_response, statewide_response]
+    def test_county_none_searches_statewide(self, mock_get, service):
+        """county_id=None must search statewide (no county param)."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"results": [MOCK_LAKE_RAW]}
+        mock_get.return_value = mock_response
 
-        lake = service.get_lake("Clearwater", county_id=99)
+        lake = service.get_lake("Clearwater", county_id=None)
 
         assert isinstance(lake, Lake)
-        assert lake.name == "Clearwater"
-        assert mock_get.call_count == 2
-        # Second call must be statewide (no county param).
-        assert mock_get.call_args_list[1].kwargs["params"] == {"name": "Clearwater"}
+        mock_get.assert_called_once_with(
+            MnDnrLakeTopographyService._API_BY_NAME_AND_COUNTY,
+            params={"name": "Clearwater"},
+            timeout=15,
+        )
+
+    @patch("onkia.dnr_client.requests.get")
+    def test_county_scoped_search_does_not_fall_back(self, mock_get, service):
+        """A county-scoped miss must not silently return a lake from another county."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"results": None, "status": "ERROR"}
+        mock_get.return_value = mock_response
+
+        assert service.get_lake("Big Swan", county_id=86) is None
+        assert mock_get.call_count == 1
 
     @patch("onkia.dnr_client.requests.get")
     def test_prefers_exact_name_match(self, mock_get, service):

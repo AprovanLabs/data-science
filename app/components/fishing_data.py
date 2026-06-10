@@ -291,9 +291,10 @@ def _build_cloud_cover_year_chart() -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 @st.cache_data(show_spinner="Searching DNR database...")
-def _search_lake_cached(name: str) -> Optional[dict]:
+def _search_lake_cached(name: str, county_id: Optional[int] = 86) -> Optional[dict]:
     svc = MnDnrLakeTopographyService()
-    lake = svc.get_lake(name, county_id=86)
+    # county_id=None searches statewide.
+    lake = svc.get_lake(name, county_id=county_id)
     # by_alias keeps keys like "epsg:4326" that the map component expects.
     return lake.model_dump(by_alias=True) if lake else None
 

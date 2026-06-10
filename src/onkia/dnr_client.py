@@ -14,8 +14,33 @@ class DnrApiUnavailableError(Exception):
     """Raised when the DNR API cannot be reached or returns an unparseable response."""
 
 
+# MN DNR county IDs are the 1-based alphabetical index of Minnesota's 87
+# counties (verified against search.cgi county_id values).
+MN_COUNTIES: Dict[int, str] = {
+    1: "Aitkin", 2: "Anoka", 3: "Becker", 4: "Beltrami", 5: "Benton",
+    6: "Big Stone", 7: "Blue Earth", 8: "Brown", 9: "Carlton", 10: "Carver",
+    11: "Cass", 12: "Chippewa", 13: "Chisago", 14: "Clay", 15: "Clearwater",
+    16: "Cook", 17: "Cottonwood", 18: "Crow Wing", 19: "Dakota", 20: "Dodge",
+    21: "Douglas", 22: "Faribault", 23: "Fillmore", 24: "Freeborn",
+    25: "Goodhue", 26: "Grant", 27: "Hennepin", 28: "Houston", 29: "Hubbard",
+    30: "Isanti", 31: "Itasca", 32: "Jackson", 33: "Kanabec", 34: "Kandiyohi",
+    35: "Kittson", 36: "Koochiching", 37: "Lac qui Parle", 38: "Lake",
+    39: "Lake of the Woods", 40: "Le Sueur", 41: "Lincoln", 42: "Lyon",
+    43: "McLeod", 44: "Mahnomen", 45: "Marshall", 46: "Martin", 47: "Meeker",
+    48: "Mille Lacs", 49: "Morrison", 50: "Mower", 51: "Murray",
+    52: "Nicollet", 53: "Nobles", 54: "Norman", 55: "Olmsted",
+    56: "Otter Tail", 57: "Pennington", 58: "Pine", 59: "Pipestone",
+    60: "Polk", 61: "Pope", 62: "Ramsey", 63: "Red Lake", 64: "Redwood",
+    65: "Renville", 66: "Rice", 67: "Rock", 68: "Roseau", 69: "St. Louis",
+    70: "Scott", 71: "Sherburne", 72: "Sibley", 73: "Stearns", 74: "Steele",
+    75: "Stevens", 76: "Swift", 77: "Todd", 78: "Traverse", 79: "Wabasha",
+    80: "Wadena", 81: "Waseca", 82: "Washington", 83: "Watonwan",
+    84: "Wilkin", 85: "Winona", 86: "Wright", 87: "Yellow Medicine",
+}
+
+
 class LakeTopographyService(Protocol):
-    def get_lake(self, name: str, county_id: int = 86) -> Optional[Lake]:
+    def get_lake(self, name: str, county_id: Optional[int] = 86) -> Optional[Lake]:
         ...
 
     def get_survey(self, lake_id: str) -> Optional[SurveyOverview]:
@@ -87,19 +112,18 @@ class MnDnrLakeTopographyService:
             return []
         return _csv_to_dicts(raw_response.text, delimiter=delimiter)
 
-    def get_lake(self, name: str, county_id: int = 86) -> Optional[Lake]:
-        results = self._send_request(
-            self._API_BY_NAME_AND_COUNTY,
-            params={"name": name, "county": str(county_id)},
-        )
-        if not results:
-            # Lakes just outside the county (e.g. Big Swan in Meeker, right on
-            # the Wright County line) won't match a county-scoped search, so
-            # fall back to a statewide query.
-            results = self._send_request(
-                self._API_BY_NAME_AND_COUNTY,
-                params={"name": name},
-            )
+    def get_lake(self, name: str, county_id: Optional[int] = 86) -> Optional[Lake]:
+        """Search LakeFinder by name.
+
+        ``county_id`` scopes the search to one county (DNR county IDs, see
+        ``MN_COUNTIES``); pass ``None`` to search statewide. Names like
+        "Big Swan" exist in several counties, so county scoping picks the
+        intended lake.
+        """
+        params = {"name": name}
+        if county_id is not None:
+            params["county"] = str(county_id)
+        results = self._send_request(self._API_BY_NAME_AND_COUNTY, params=params)
         if not results:
             return None
         try:

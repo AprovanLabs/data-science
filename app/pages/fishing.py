@@ -52,7 +52,7 @@ from onkia.bathymetry import (  # noqa: F401
     load_depth_profile,
     species_depth_zone,
 )
-from onkia.dnr_client import DnrApiUnavailableError, MnDnrLakeTopographyService
+from onkia.dnr_client import DnrApiUnavailableError, MN_COUNTIES, MnDnrLakeTopographyService
 from onkia.water_temp import WATER_TEMP_PREFERENCES
 from onkia.models import WaterTempPreference
 from onkia.usgs_glm import (  # noqa: F401
@@ -269,7 +269,11 @@ for i, name in enumerate(lake_names):
             st.session_state["selected_lake_name"] = name
             st.session_state["selected_lake_id"] = WRIGHT_COUNTY_LAKES[name][2]
 
-col_search, col_btn = st.columns([3, 1])
+_ALL_MN = "All Minnesota"
+_county_options = [_ALL_MN] + sorted(MN_COUNTIES.values())
+_county_name_to_id = {v: k for k, v in MN_COUNTIES.items()}
+
+col_search, col_county, col_btn = st.columns([2.2, 1.4, 0.8])
 with col_search:
     search_query = st.text_input(
         "Search DNR by name",
@@ -277,12 +281,22 @@ with col_search:
         label_visibility="collapsed",
         key="lake_search",
     )
+with col_county:
+    search_county = st.selectbox(
+        "County",
+        options=_county_options,
+        index=_county_options.index("Wright"),
+        label_visibility="collapsed",
+        key="lake_search_county",
+    )
 with col_btn:
     do_search = st.button("Search", key="btn_search_dnr", use_container_width=True)
 
 if do_search and search_query:
+    # None searches statewide.
+    search_county_id = _county_name_to_id.get(search_county)
     try:
-        result = _search_lake_cached(search_query.strip())
+        result = _search_lake_cached(search_query.strip(), search_county_id)
     except DnrApiUnavailableError:
         st.session_state["dnr_search_results"] = []
         st.error("DNR API is unavailable. Please try again later.")
@@ -300,7 +314,11 @@ if do_search and search_query:
                 )
         else:
             st.session_state["dnr_search_results"] = []
-            st.warning(f"No lake named '{search_query}' found in the DNR LakeFinder database.")
+            _scope = "Minnesota" if search_county == _ALL_MN else f"{search_county} County"
+            st.warning(
+                f"No lake named '{search_query}' found in {_scope}. "
+                "Try a different county or 'All Minnesota'."
+            )
 
 st.divider()
 
@@ -326,12 +344,18 @@ if lake_name_for_zones and show_species_zones and zone_species:
             })
 
 _dnr_coord_overrides = {}
+_map_view_kwargs = {}
 for _r in st.session_state["dnr_search_results"]:
     _rname = _r.get("name", "")
+    _coords = _r.get("point", {}).get("epsg:4326", [])
+    if len(_coords) < 2:
+        continue
     if _rname in WRIGHT_COUNTY_LAKES:
-        _coords = _r.get("point", {}).get("epsg:4326", [])
-        if len(_coords) >= 2:
-            _dnr_coord_overrides[_rname] = (float(_coords[1]), float(_coords[0]))
+        _dnr_coord_overrides[_rname] = (float(_coords[1]), float(_coords[0]))
+    else:
+        # Search result outside the Wright County roster (possibly another
+        # county entirely): center the map on it so its marker is visible.
+        _map_view_kwargs = {"center": (float(_coords[1]), float(_coords[0])), "zoom": 12}
 
 fmap = build_lake_map(
     selected_lake=st.session_state["selected_lake_name"],
@@ -339,6 +363,7 @@ fmap = build_lake_map(
     show_bathymetry=show_bathymetry,
     species_zones=species_zones if species_zones else None,
     lake_coord_overrides=_dnr_coord_overrides if _dnr_coord_overrides else None,
+    **_map_view_kwargs,
 )
 map_data = st_folium(fmap, width="100%", height=400, returned_objects=["last_object_clicked"])
 
