@@ -45,6 +45,18 @@ try:
 except ImportError:
     _HAS_PLANETARY_COMPUTER = False
 
+# Tune GDAL for remote COG access: skip directory listings on open and
+# bound every HTTP request so a stalled read fails fast instead of
+# hanging the Streamlit worker indefinitely.
+os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+os.environ.setdefault("GDAL_HTTP_TIMEOUT", "30")
+os.environ.setdefault("GDAL_HTTP_CONNECTTIMEOUT", "10")
+os.environ.setdefault("GDAL_HTTP_MAX_RETRY", "2")
+os.environ.setdefault("GDAL_HTTP_RETRY_DELAY", "1")
+
+#: Connect/read timeout (seconds) for STAC API searches.
+_STAC_TIMEOUT = 30
+
 # ---------------------------------------------------------------------------
 # Lake metadata
 # ---------------------------------------------------------------------------
@@ -216,13 +228,14 @@ def _landsat_stac_client() -> pystac_client.Client:
         return pystac_client.Client.open(
             MPC_STAC_URL,
             modifier=planetary_computer.sign_inplace,
+            timeout=_STAC_TIMEOUT,
         )
     _log.warning(
         "planetary_computer not installed — falling back to USGS STAC. "
         "Landsat data URLs require ERS authentication. "
         "Install with: pip install planetary-computer"
     )
-    return pystac_client.Client.open(USGS_STAC_URL)
+    return pystac_client.Client.open(USGS_STAC_URL, timeout=_STAC_TIMEOUT)
 
 
 def _copernicus_stac_client() -> pystac_client.Client:
@@ -230,7 +243,7 @@ def _copernicus_stac_client() -> pystac_client.Client:
     token = os.getenv("CDSE_ACCESS_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return pystac_client.Client.open(COPERNICUS_STAC_URL, headers=headers)
+    return pystac_client.Client.open(COPERNICUS_STAC_URL, headers=headers, timeout=_STAC_TIMEOUT)
 
 
 def _cloud_mask_landsat(qa_pixel) -> np.ndarray:
@@ -277,6 +290,7 @@ def _fetch_sentinel2_items(
         client = pystac_client.Client.open(
             MPC_STAC_URL,
             modifier=planetary_computer.sign_inplace,
+            timeout=_STAC_TIMEOUT,
         )
         search = client.search(
             collections=["sentinel-2-l2a"],
@@ -380,9 +394,14 @@ def _read_windowed_xr(
     lon: float,
     radius_m: float,
 ) -> Optional[xr.DataArray]:
-    """Read a windowed subset and return as xarray DataArray for plotting."""
+    """Read a windowed subset and return as an EPSG:4326 xarray DataArray.
+
+    Clips to the lake window in the raster's *native* CRS first so only a
+    few hundred kilobytes are fetched from the remote COG, then reprojects
+    just that clip. (Reprojecting before clipping would download and warp
+    the entire scene — hundreds of megabytes per band.)
+    """
     try:
-        from pyproj import Transformer
         m_per_deg_lat = 111_320.0
         m_per_deg_lon = 111_320.0 * math.cos(math.radians(lat))
         dlat = radius_m / m_per_deg_lat
@@ -390,31 +409,20 @@ def _read_windowed_xr(
         min_lon, max_lon = lon - dlon, lon + dlon
         min_lat, max_lat = lat - dlat, lat + dlat
 
-        with rasterio.open(asset_href) as ds:
-            src_crs = ds.crs
-            if src_crs is not None:
-                transformer = Transformer.from_crs(
-                    "EPSG:4326", src_crs, always_xy=True
-                )
-                min_x, min_y = transformer.transform(min_lon, min_lat)
-                max_x, max_y = transformer.transform(max_lon, max_lat)
-            else:
-                min_x, min_y, max_x, max_y = min_lon, min_lat, max_lon, max_lat
+        da = rioxarray.open_rasterio(
+            asset_href, masked=True, default_name="band"
+        ).squeeze("band", drop=True)
 
-            window = rio_window_from_bounds(min_x, min_y, max_x, max_y, ds.transform)
-            window = window.round_offsets().round_lengths()
+        # clip_box transforms the lat/lon box into the raster's CRS, so the
+        # clip happens before any pixels are pulled over the network.
+        da = da.rio.clip_box(
+            minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat,
+            crs="EPSG:4326",
+        ).load()
 
-            da = rioxarray.open_rasterio(
-                asset_href, masked=True, default_name="band"
-            ).squeeze("band", drop=True)
-
-            if src_crs is not None and src_crs.to_epsg() != 4326:
-                da = da.rio.reproject("EPSG:4326")
-
-            da = da.rio.clip_box(
-                minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat
-            )
-            return da
+        if da.rio.crs is not None and da.rio.crs.to_epsg() != 4326:
+            da = da.rio.reproject("EPSG:4326")
+        return da
     except Exception as exc:
         _log.warning("Windowed xr read failed for %s: %s", asset_href[:80], exc)
         return None
