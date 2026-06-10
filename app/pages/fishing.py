@@ -289,10 +289,18 @@ if do_search and search_query:
     else:
         if result:
             st.session_state["dnr_search_results"] = [result]
-            st.success(f"Found: **{result['name']}** (DOW: {result['id']})")
+            _county = result.get("county", "")
+            _county_note = f", {_county} County" if _county else ""
+            st.success(f"Found: **{result['name']}** (DOW: {result['id']}{_county_note})")
+            if _county and _county != "Wright":
+                st.caption(
+                    "This lake is outside Wright County -- click its green marker "
+                    "on the map to select it. DNR survey data will load, but "
+                    "bathymetry contours are only available for Wright County lakes."
+                )
         else:
             st.session_state["dnr_search_results"] = []
-            st.warning(f"No lake named '{search_query}' found in Wright County.")
+            st.warning(f"No lake named '{search_query}' found in the DNR LakeFinder database.")
 
 st.divider()
 
@@ -389,7 +397,15 @@ lake_coords = WRIGHT_COUNTY_LAKES.get(lake_name)
 if lake_coords:
     lat, lon = lake_coords[0], lake_coords[1]
 else:
+    # Lake selected from a DNR search result (possibly outside Wright County):
+    # use its actual coordinates rather than the county center.
     lat, lon = 45.17, -94.05
+    for _r in st.session_state["dnr_search_results"]:
+        if _r.get("name") == lake_name:
+            _coords = _r.get("point", {}).get("epsg:4326", [])
+            if len(_coords) >= 2:
+                lat, lon = float(_coords[1]), float(_coords[0])
+            break
 
 weather = _get_weather_cached(lat, lon, selected_date.isoformat())
 

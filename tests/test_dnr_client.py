@@ -164,6 +164,36 @@ class TestGetLake:
         assert service.get_lake("Nonexistent") is None
 
     @patch("onkia.dnr_client.requests.get")
+    def test_falls_back_to_statewide_search(self, mock_get, service):
+        """Lakes outside the requested county are found via a statewide retry."""
+        empty_response = MagicMock()
+        empty_response.json.return_value = {"results": None, "status": "ERROR"}
+        statewide_response = MagicMock()
+        statewide_response.json.return_value = {"results": [MOCK_LAKE_RAW]}
+        mock_get.side_effect = [empty_response, statewide_response]
+
+        lake = service.get_lake("Clearwater", county_id=99)
+
+        assert isinstance(lake, Lake)
+        assert lake.name == "Clearwater"
+        assert mock_get.call_count == 2
+        # Second call must be statewide (no county param).
+        assert mock_get.call_args_list[1].kwargs["params"] == {"name": "Clearwater"}
+
+    @patch("onkia.dnr_client.requests.get")
+    def test_prefers_exact_name_match(self, mock_get, service):
+        """A prefix match must not win over an exact (case-insensitive) match."""
+        prefix_match = dict(MOCK_LAKE_RAW, name="Clearwater Slough", id="86099900")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"results": [prefix_match, MOCK_LAKE_RAW]}
+        mock_get.return_value = mock_response
+
+        lake = service.get_lake("clearwater")
+
+        assert lake.name == "Clearwater"
+        assert lake.id == "86025200"
+
+    @patch("onkia.dnr_client.requests.get")
     def test_handles_invasive_species(self, mock_get, service):
         mock_response = MagicMock()
         mock_response.json.return_value = {"results": [MOCK_LAKE_RAW]}

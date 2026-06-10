@@ -93,13 +93,26 @@ class MnDnrLakeTopographyService:
             params={"name": name, "county": str(county_id)},
         )
         if not results:
+            # Lakes just outside the county (e.g. Big Swan in Meeker, right on
+            # the Wright County line) won't match a county-scoped search, so
+            # fall back to a statewide query.
+            results = self._send_request(
+                self._API_BY_NAME_AND_COUNTY,
+                params={"name": name},
+            )
+        if not results:
             return None
         try:
-            raw = next(iter(results), None)
-        except (TypeError, StopIteration):
+            candidates = list(results)
+        except TypeError:
             return None
-        if raw is None:
+        if not candidates:
             return None
+        # Prefer an exact (case-insensitive) name match over a prefix match.
+        raw = next(
+            (c for c in candidates if str(c.get("name", "")).lower() == name.lower()),
+            candidates[0],
+        )
         try:
             return Lake.model_validate(raw)
         except Exception:
