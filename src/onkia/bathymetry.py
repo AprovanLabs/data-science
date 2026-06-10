@@ -282,6 +282,35 @@ def _feature_rings(geometry: Dict[str, Any]) -> List[List[List[float]]]:
     return []
 
 
+def contours_bbox(
+    contours: Dict[str, Any],
+    pad_frac: float = 0.15,
+) -> Optional[Tuple[float, float, float, float]]:
+    """Bounding box of a contour FeatureCollection, padded on each side.
+
+    Returns ``(min_lon, min_lat, max_lon, max_lat)`` or None if the
+    collection has no usable ring coordinates. Useful for sizing satellite
+    imagery windows to the lake's true extent rather than guessing a
+    radius from its surface area.
+    """
+    min_lon = min_lat = math.inf
+    max_lon = max_lat = -math.inf
+    for feature in contours.get("features", []):
+        for ring in _feature_rings(feature.get("geometry", {})):
+            for pt in ring:
+                if len(pt) < 2:
+                    continue
+                min_lon = min(min_lon, pt[0])
+                max_lon = max(max_lon, pt[0])
+                min_lat = min(min_lat, pt[1])
+                max_lat = max(max_lat, pt[1])
+    if not (math.isfinite(min_lon) and math.isfinite(min_lat)):
+        return None
+    pad_lon = (max_lon - min_lon) * pad_frac
+    pad_lat = (max_lat - min_lat) * pad_frac
+    return (min_lon - pad_lon, min_lat - pad_lat, max_lon + pad_lon, max_lat + pad_lat)
+
+
 def depth_area_profile(
     lake_name: str,
     bathymetry_dir: Optional[Path] = None,

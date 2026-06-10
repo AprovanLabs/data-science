@@ -47,6 +47,7 @@ from components.fishing_data import (
 from onkia.analysis import LakeAnalysis, TrendStatus, analyze_lake, parse_stocking_events  # noqa: F401
 from onkia.bathymetry import (  # noqa: F401
     contour_color,
+    contours_bbox,
     contours_to_profile,
     depth_area_profile,
     load_contours,
@@ -100,8 +101,16 @@ def _get_heatmap_cached(lat: float, lon: float, radius_m: float):
 
 
 @st.cache_data(ttl=3600, show_spinner="Fetching satellite overlay imagery...")
-def _get_overlay_grids_cached(lake_name: str, lat: float, lon: float, radius_m: float):
-    return get_overlay_grids(lake_name, lat, lon, radius_m=radius_m)
+def _get_overlay_grids_cached(
+    lake_name: str,
+    lat: float,
+    lon: float,
+    radius_m: float,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+):
+    return get_overlay_grids(
+        lake_name, lat, lon, radius_m=radius_m, bbox=list(bbox) if bbox else None
+    )
 
 
 if "selected_lake_name" not in st.session_state:
@@ -277,6 +286,40 @@ def _grid_to_rgba(values: np.ndarray, vmin: float, vmax: float, cmap_name: str, 
     return rgba
 
 
+def _lake_clip_mask(grid_da, contours: Optional[Dict]) -> Optional[np.ndarray]:
+    """Boolean mask of grid pixels inside the lake's contour footprint.
+
+    Used to clip satellite overlays to the lake shape so they don't render
+    as a square covering shoreline and land. Returns None when contours
+    are missing or unusable (overlay then stays unclipped).
+    """
+    if not contours:
+        return None
+    try:
+        import shapely
+        from shapely.geometry import shape
+        from shapely.ops import unary_union
+
+        geoms = []
+        for feature in contours.get("features", []):
+            try:
+                geom = shape(feature.get("geometry", {}))
+                if not geom.is_valid:
+                    geom = geom.buffer(0)
+                if not geom.is_empty and geom.geom_type in ("Polygon", "MultiPolygon"):
+                    geoms.append(geom)
+            except Exception:
+                continue
+        if not geoms:
+            return None
+        # ~1-2 satellite pixels of shoreline slack so edge pixels survive.
+        lake = unary_union(geoms).buffer(0.0006)
+        xx, yy = np.meshgrid(grid_da["x"].values, grid_da["y"].values)
+        return shapely.contains_xy(lake, xx, yy)
+    except Exception:
+        return None
+
+
 def _mask_to_rgba(mask: np.ndarray, hex_color: str, alpha: float) -> np.ndarray:
     """Render a boolean mask as a single-colour RGBA image (transparent elsewhere)."""
     from matplotlib.colors import to_rgba
@@ -430,15 +473,27 @@ if _selected_name and _selected_name in _all_lakes and (
     show_temp_overlay or show_veg_overlay or show_hotspots
 ):
     _sel_lat, _sel_lon = _all_lakes[_selected_name][0], _all_lakes[_selected_name][1]
+    # Size the satellite window to the lake's real outline (from bathymetry
+    # contours) instead of a fixed radius around the centroid, so the
+    # imagery always spans the whole lake.
+    _sat_bbox = contours_bbox(_contour_data) if _contour_data else None
     _sat_grids = _get_overlay_grids_cached(
-        _selected_name, _sel_lat, _sel_lon, lake_radius_m(_selected_name)
+        _selected_name, _sel_lat, _sel_lon, lake_radius_m(_selected_name), bbox=_sat_bbox
     )
     _lst_da = _sat_grids.lst_grid
     _ndci_da = _sat_grids.ndci_grid
+    # Clip overlays to the lake polygon so they follow the shoreline
+    # instead of rendering as a square that includes land.
+    _lst_lake_mask = _lake_clip_mask(_lst_da, _contour_data) if _lst_da is not None else None
+    _ndci_lake_mask = _lake_clip_mask(_ndci_da, _contour_data) if _ndci_da is not None else None
 
     if show_temp_overlay:
         if _lst_da is not None:
             _temp_f_vals = _lst_da.values * 9.0 / 5.0 + 32.0
+            if _lst_lake_mask is not None:
+                _clipped = np.where(_lst_lake_mask, _temp_f_vals, np.nan)
+                if np.isfinite(_clipped).any():
+                    _temp_f_vals = _clipped
             _vmin = float(np.nanpercentile(_temp_f_vals, 5))
             _vmax = float(np.nanpercentile(_temp_f_vals, 95))
             if _vmax - _vmin < 2.0:
@@ -459,9 +514,14 @@ if _selected_name and _selected_name in _all_lakes and (
 
     if show_veg_overlay:
         if _ndci_da is not None:
+            _ndci_vals = _ndci_da.values
+            if _ndci_lake_mask is not None:
+                _clipped = np.where(_ndci_lake_mask, _ndci_vals, np.nan)
+                if np.isfinite(_clipped).any():
+                    _ndci_vals = _clipped
             _image_overlays.append({
                 "name": "Vegetation / Algae (NDCI)",
-                "image": _grid_to_rgba(_ndci_da.values, -0.1, 0.3, "YlGn", alpha=0.6),
+                "image": _grid_to_rgba(_ndci_vals, -0.1, 0.3, "YlGn", alpha=0.6),
                 "bounds": grid_bounds(_ndci_da),
             })
             _overlay_notes.append(
@@ -476,6 +536,10 @@ if _selected_name and _selected_name in _all_lakes and (
     if show_hotspots:
         if _lst_da is not None and zone_species:
             _temp_f_grid = _lst_da.values * 9.0 / 5.0 + 32.0
+            if _lst_lake_mask is not None:
+                _clipped = np.where(_lst_lake_mask, _temp_f_grid, np.nan)
+                if np.isfinite(_clipped).any():
+                    _temp_f_grid = _clipped
             _ndci_on_lst = None
             if _ndci_da is not None:
                 try:

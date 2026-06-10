@@ -12,6 +12,7 @@ from onkia.bathymetry import (
     _keep_basin,
     available_lakes,
     contour_color,
+    contours_bbox,
     contours_to_profile,
     depth_area_profile,
     fetch_contours_from_dnr,
@@ -258,6 +259,21 @@ class TestContoursToProfile:
 
     def test_empty_contours(self):
         assert contours_to_profile("X", "1", {"type": "FeatureCollection", "features": []}) is None
+
+
+class TestContoursBbox:
+    def test_bbox_with_padding(self, sample_geojson):
+        bbox = contours_bbox(sample_geojson["data"], pad_frac=0.0)
+        assert bbox == (-94.0, 45.3, -93.99, 45.31)
+
+    def test_padding_expands_bbox(self, sample_geojson):
+        inner = contours_bbox(sample_geojson["data"], pad_frac=0.0)
+        padded = contours_bbox(sample_geojson["data"], pad_frac=0.15)
+        assert padded[0] < inner[0] and padded[1] < inner[1]
+        assert padded[2] > inner[2] and padded[3] > inner[3]
+
+    def test_empty_features(self):
+        assert contours_bbox({"type": "FeatureCollection", "features": []}) is None
 
 
 class TestDepthAreaProfileWithPreloadedContours:

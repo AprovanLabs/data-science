@@ -260,10 +260,12 @@ def _fetch_landsat_items(
     end_date: date,
     radius_m: float,
     max_items: int = 20,
+    bbox: Optional[list] = None,
 ) -> list:
     client = _landsat_stac_client()
     collection = LANDSAT_C2L2_COLLECTION if _HAS_PLANETARY_COMPUTER else LANDSAT_ST_COLLECTION
-    bbox = _point_to_bbox(lat, lon, radius_m)
+    if bbox is None:
+        bbox = _point_to_bbox(lat, lon, radius_m)
     search = client.search(
         collections=[collection],
         bbox=bbox,
@@ -285,7 +287,10 @@ def _fetch_sentinel2_items(
     end_date: date,
     radius_m: float,
     max_items: int = 10,
+    bbox: Optional[list] = None,
 ) -> list:
+    if bbox is None:
+        bbox = _point_to_bbox(lat, lon, radius_m)
     if _HAS_PLANETARY_COMPUTER:
         client = pystac_client.Client.open(
             MPC_STAC_URL,
@@ -294,7 +299,7 @@ def _fetch_sentinel2_items(
         )
         search = client.search(
             collections=["sentinel-2-l2a"],
-            bbox=_point_to_bbox(lat, lon, radius_m),
+            bbox=bbox,
             datetime=f"{start_date.isoformat()}/{end_date.isoformat()}",
             max_items=max_items,
             query={"eo:cloud_cover": {"lt": 30}},
@@ -306,7 +311,7 @@ def _fetch_sentinel2_items(
         client = _copernicus_stac_client()
         search = client.search(
             collections=[SENTINEL2_L2A_COLLECTION],
-            bbox=_point_to_bbox(lat, lon, radius_m),
+            bbox=bbox,
             datetime=f"{start_date.isoformat()}/{end_date.isoformat()}",
             max_items=max_items,
             query={"eo:cloud_cover": {"lt": 30}},
@@ -390,24 +395,18 @@ def _read_windowed(
 
 def _read_windowed_xr(
     asset_href: str,
-    lat: float,
-    lon: float,
-    radius_m: float,
+    bbox: list,
 ) -> Optional[xr.DataArray]:
-    """Read a windowed subset and return as an EPSG:4326 xarray DataArray.
+    """Read a ``bbox`` window and return as an EPSG:4326 xarray DataArray.
 
-    Clips to the lake window in the raster's *native* CRS first so only a
-    few hundred kilobytes are fetched from the remote COG, then reprojects
-    just that clip. (Reprojecting before clipping would download and warp
-    the entire scene — hundreds of megabytes per band.)
+    ``bbox`` is ``[min_lon, min_lat, max_lon, max_lat]``. Clips to the
+    window in the raster's *native* CRS first so only a few hundred
+    kilobytes are fetched from the remote COG, then reprojects just that
+    clip. (Reprojecting before clipping would download and warp the
+    entire scene — hundreds of megabytes per band.)
     """
     try:
-        m_per_deg_lat = 111_320.0
-        m_per_deg_lon = 111_320.0 * math.cos(math.radians(lat))
-        dlat = radius_m / m_per_deg_lat
-        dlon = radius_m / m_per_deg_lon
-        min_lon, max_lon = lon - dlon, lon + dlon
-        min_lat, max_lat = lat - dlat, lat + dlat
+        min_lon, min_lat, max_lon, max_lat = bbox
 
         da = rioxarray.open_rasterio(
             asset_href, masked=True, default_name="band"
@@ -642,6 +641,7 @@ def get_lst_heatmap(
 
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
+        bbox = _point_to_bbox(lat, lon, radius_m)
 
         items = _fetch_landsat_items(lat, lon, start_date, end_date, radius_m, max_items=5)
         if not items:
@@ -653,14 +653,14 @@ def get_lst_heatmap(
             if thermal_asset is None:
                 continue
 
-            da = _read_windowed_xr(thermal_asset.href, lat, lon, radius_m)
+            da = _read_windowed_xr(thermal_asset.href, bbox)
             if da is None:
                 continue
 
             lst_c = da * _LANDSAT_SCALE + _LANDSAT_OFFSET - 273.15
 
             if qa_asset is not None:
-                qa_da = _read_windowed_xr(qa_asset.href, lat, lon, radius_m)
+                qa_da = _read_windowed_xr(qa_asset.href, bbox)
                 if qa_da is not None:
                     mask = _cloud_mask_landsat(qa_da.values)
                     lst_c = lst_c.where(mask)
@@ -834,6 +834,7 @@ def get_lst_grid(
     lon: float,
     radius_m: float,
     days_back: int = 45,
+    bbox: Optional[list] = None,
 ) -> tuple:
     """Cloud-masked surface temperature grid (°C) from the latest Landsat scene.
 
@@ -848,8 +849,12 @@ def get_lst_grid(
     try:
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
+        if bbox is None:
+            bbox = _point_to_bbox(lat, lon, radius_m)
 
-        items = _fetch_landsat_items(lat, lon, start_date, end_date, radius_m, max_items=10)
+        items = _fetch_landsat_items(
+            lat, lon, start_date, end_date, radius_m, max_items=10, bbox=bbox
+        )
         best_score = 0.0
         best_grid = None
         best_date = None
@@ -859,14 +864,14 @@ def get_lst_grid(
             if thermal_asset is None:
                 continue
 
-            da = _read_windowed_xr(thermal_asset.href, lat, lon, radius_m)
+            da = _read_windowed_xr(thermal_asset.href, bbox)
             if da is None:
                 continue
 
             lst_c = da * _LANDSAT_SCALE + _LANDSAT_OFFSET - 273.15
 
             if qa_asset is not None:
-                qa_da = _read_windowed_xr(qa_asset.href, lat, lon, radius_m)
+                qa_da = _read_windowed_xr(qa_asset.href, bbox)
                 if qa_da is not None and qa_da.shape == lst_c.shape:
                     mask = _cloud_mask_landsat(np.nan_to_num(qa_da.values, nan=0.0))
                     lst_c = lst_c.where(mask)
@@ -906,6 +911,7 @@ def get_ndci_grid(
     lon: float,
     radius_m: float,
     days_back: int = 45,
+    bbox: Optional[list] = None,
 ) -> tuple:
     """NDCI grid from the latest low-cloud Sentinel-2 scene.
 
@@ -916,8 +922,10 @@ def get_ndci_grid(
     try:
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days_back)
+        if bbox is None:
+            bbox = _point_to_bbox(lat, lon, radius_m)
 
-        items = _fetch_sentinel2_items(lat, lon, start_date, end_date, radius_m)
+        items = _fetch_sentinel2_items(lat, lon, start_date, end_date, radius_m, bbox=bbox)
         for item in items[:3]:
             b04_key, b05_key, scl_key = _s2_band_keys(item)
             if b04_key is None:
@@ -928,8 +936,8 @@ def get_ndci_grid(
                 continue
 
             # B05 (red edge) is the coarser 20 m band — use its grid as the base.
-            b05 = _read_windowed_xr(b05_asset.href, lat, lon, radius_m)
-            b04 = _read_windowed_xr(b04_asset.href, lat, lon, radius_m)
+            b05 = _read_windowed_xr(b05_asset.href, bbox)
+            b04 = _read_windowed_xr(b04_asset.href, bbox)
             if b04 is None or b05 is None:
                 continue
             if b04.shape != b05.shape:
@@ -938,7 +946,7 @@ def get_ndci_grid(
             ndci = (b05 - b04) / (b05 + b04)
 
             if scl_key and scl_key in item.assets:
-                scl = _read_windowed_xr(item.assets[scl_key].href, lat, lon, radius_m)
+                scl = _read_windowed_xr(item.assets[scl_key].href, bbox)
                 if scl is not None:
                     if scl.shape != b05.shape:
                         scl = scl.interp_like(b05, method="nearest")
@@ -962,12 +970,18 @@ def get_overlay_grids(
     lon: float,
     radius_m: Optional[float] = None,
     days_back: int = 45,
+    bbox: Optional[list] = None,
 ) -> SatelliteOverlayGrids:
-    """Fetch LST and NDCI grids for map overlays in one call."""
+    """Fetch LST and NDCI grids for map overlays in one call.
+
+    ``bbox`` (``[min_lon, min_lat, max_lon, max_lat]``, e.g. derived from
+    the lake's bathymetry contours) overrides the radius-around-centroid
+    window so the imagery spans the lake's true extent.
+    """
     if radius_m is None:
         radius_m = lake_radius_m(lake_name)
-    lst_grid, lst_date = get_lst_grid(lat, lon, radius_m, days_back=days_back)
-    ndci_grid, ndci_date = get_ndci_grid(lat, lon, radius_m, days_back=days_back)
+    lst_grid, lst_date = get_lst_grid(lat, lon, radius_m, days_back=days_back, bbox=bbox)
+    ndci_grid, ndci_date = get_ndci_grid(lat, lon, radius_m, days_back=days_back, bbox=bbox)
     error = None
     if lst_grid is None and ndci_grid is None:
         error = "No cloud-free Landsat or Sentinel-2 scenes found in window"
